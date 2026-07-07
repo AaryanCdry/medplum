@@ -4,7 +4,7 @@ import { Box, Drawer, LoadingOverlay, Stack, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import type { WithId } from '@medplum/core';
 import { getReferenceString, isReference, isResourceWithId } from '@medplum/core';
-import type { Appointment, Practitioner, Schedule, Slot } from '@medplum/fhirtypes';
+import type { Appointment, HealthcareService, Practitioner, Schedule, Slot } from '@medplum/fhirtypes';
 import { useMedplum, useResourceModified } from '@medplum/react';
 import type { JSX } from 'react';
 import { useCallback, useMemo, useState } from 'react';
@@ -16,6 +16,7 @@ import { useSchedulingResources } from '../../hooks/useSchedulingResources';
 import type { Range } from '../../types/scheduling';
 import { encounterUrl } from '../../utils/encounter';
 import { showErrorNotification } from '../../utils/notifications';
+import { extractAvailability } from '../../utils/scheduling';
 import { mergeOverlappingSlots } from '../../utils/slots';
 import { FindPane } from './FindPane';
 import classes from './ScheduleDetails.module.css';
@@ -35,6 +36,9 @@ export function ScheduleDetails(props: ScheduleDetailsProps): JSX.Element | null
 
   const [appointmentSlot, setAppointmentSlot] = useState<Range>();
   const [appointmentDetails, setAppointmentDetails] = useState<WithId<Appointment> | undefined>(undefined);
+  const [healthcareService, setHealthcareService] = useState<WithId<HealthcareService> | undefined>(undefined);
+
+  const availableTime = extractAvailability(healthcareService, schedule);
 
   const { slots, appointments, loading } = useSchedulingResources([schedule], range);
 
@@ -140,6 +144,7 @@ export function ScheduleDetails(props: ScheduleDetailsProps): JSX.Element | null
               appointments={appointments ?? []}
               onRangeChange={setRange}
               onDoubleClickAppointment={handleDoubleClickAppointment}
+              availableTime={availableTime}
             />
           </Box>
           <Text size="sm" color="dimmed" fs="italic">
@@ -154,6 +159,8 @@ export function ScheduleDetails(props: ScheduleDetailsProps): JSX.Element | null
             range={range}
             onSuccess={handleBookSuccess}
             className={classes.findPane}
+            healthcareService={healthcareService}
+            onSelectHealthcareService={setHealthcareService}
           />
         )}
       </div>
