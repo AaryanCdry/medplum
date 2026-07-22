@@ -11,14 +11,13 @@ import '@fullcalendar/react/themes/classic/theme.css';
 import timeGridPlugin from '@fullcalendar/react/timegrid';
 import { Button, Group, SegmentedControl, Title, useComputedColorScheme } from '@mantine/core';
 import { useDebouncedCallback } from '@mantine/hooks';
-import { EMPTY, getReferenceString } from '@medplum/core';
+import { assertNever, EMPTY, getReferenceString } from '@medplum/core';
 import type { Appointment, Slot } from '@medplum/fhirtypes';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import cx from 'clsx';
 import type { JSX } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { Range } from '../types/scheduling';
-import { assertNever } from '../utils/assert';
+import type { Range } from '../types';
 import classes from './Calendar.module.css';
 
 type ExtendedEvent = { type: 'appointment'; appointment: Appointment } | { type: 'slot'; slot: Slot };

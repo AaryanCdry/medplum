@@ -3,7 +3,7 @@
 import type { Appointment, Slot } from '@medplum/fhirtypes';
 import { describe, expect, test, vi } from 'vitest';
 import { render, screen, userEvent } from '../test-utils/render';
-import type { Range } from '../types/scheduling';
+import type { Range } from '../types';
 import { Calendar } from './Calendar';
 
 describe('Calendar', () => {
