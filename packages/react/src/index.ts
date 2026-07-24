@@ -161,3 +161,5 @@ export * from './utils/pagination';
 export * from './utils/recaptcha';
 export * from './utils/script';
 export * from './ValueSetAutocomplete/ValueSetAutocomplete';
+export * from './ScheduleAvailabilityEditor/ScheduleAvailabilityEditor';
+export * from './ScheduleAvailabilityEditor/ScheduleAvailabilityEditor.utils';

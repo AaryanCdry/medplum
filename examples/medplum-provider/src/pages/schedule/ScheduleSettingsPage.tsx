@@ -1,10 +1,17 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import { Alert, Button, Group, Loader, Stack, Switch, Text, Title, Tooltip } from '@mantine/core';
+import { Alert, Badge, Button, Group, Loader, Stack, Switch, Text, Title, Tooltip } from '@mantine/core';
 import type { WithId } from '@medplum/core';
 import { deepClone, EMPTY, formatReferenceString, getExtensionValue, getReferenceString } from '@medplum/core';
 import type { HealthcareService, Reference, Schedule } from '@medplum/fhirtypes';
-import { Document, MedplumLink, OperationOutcomeAlert, useMedplum } from '@medplum/react';
+import {
+  Document,
+  hasAvailabilityOverride,
+  MedplumLink,
+  OperationOutcomeAlert,
+  ScheduleAvailabilityEditor,
+  useMedplum,
+} from '@medplum/react';
 import { useResource, useSearchResources } from '@medplum/react-hooks';
 import { IconAlertCircle } from '@tabler/icons-react';
 import type { JSX } from 'react';
@@ -29,6 +36,7 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingService, setEditingService] = useState<WithId<HealthcareService>>();
 
   // Store a copy of the Schedule that we can mutate while the viewer manipulates
   // the UI
@@ -99,8 +107,10 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
       <Stack gap="sm">
         {services?.map((service) => {
           const schedulable = hasSchedulingParameters(service);
+          const enabled = isCodeableReferenceLikeTo(schedule.serviceType, service);
+          const overriding = enabled && hasAvailabilityOverride(schedule, service);
           return (
-            <Group key={service.id}>
+            <Group key={service.id} justify="space-between">
               <Tooltip
                 label={'This HealthcareService does not have a SchedulingParameters extension'}
                 disabled={schedulable}
@@ -110,15 +120,47 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
               >
                 <Switch
                   label={service.name}
-                  checked={isCodeableReferenceLikeTo(schedule.serviceType, service)}
+                  checked={enabled}
                   onChange={(e) => toggleServiceType(service, e.target.checked)}
                   disabled={!schedulable}
                 />
               </Tooltip>
+              {enabled && (
+                <Group gap="xs" wrap="nowrap">
+                  <Tooltip
+                    label={
+                      overriding
+                        ? 'This calendar uses custom hours that override the service default'
+                        : 'This calendar follows the default hours defined on the service'
+                    }
+                    position="left"
+                    withArrow
+                  >
+                    <Badge color={overriding ? 'blue' : 'gray'} variant="light">
+                      {overriding ? 'Custom hours' : 'Service default'}
+                    </Badge>
+                  </Tooltip>
+                  <Button variant="subtle" size="compact-sm" onClick={() => setEditingService(service)}>
+                    Edit weekly hours
+                  </Button>
+                </Group>
+              )}
             </Group>
           );
         })}
       </Stack>
+      {editingService && (
+        <ScheduleAvailabilityEditor
+          schedule={schedule}
+          service={editingService}
+          opened={!!editingService}
+          onClose={() => setEditingService(undefined)}
+          onSave={(updated) => {
+            setSchedule(updated);
+            setDirty(true);
+          }}
+        />
+      )}
       <Group justify="flex-end">
         <Button variant="outline" disabled={saving} component={MedplumLink} to={`/Calendar/Schedule/${schedule.id}`}>
           {dirty ? 'Cancel' : 'Back'}
