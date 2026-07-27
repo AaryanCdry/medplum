@@ -1,7 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { WithId } from '@medplum/core';
-import { createReference, getReferenceString, isDefined, parseSearchRequest } from '@medplum/core';
+import {
+  createReference,
+  getReferenceString,
+  isDefined,
+  parseSearchRequest,
+  toCodeableReferenceLike,
+} from '@medplum/core';
 import type {
   AccessPolicy,
   Appointment,
@@ -22,7 +28,6 @@ import { loadTestConfig } from '../../config/loader';
 import { getGlobalSystemRepo } from '../../fhir/repo';
 import type { TestProjectResult } from '../../test.setup';
 import { addTestUser, createTestProject } from '../../test.setup';
-import { toCodeableReferenceLike } from '../../util/servicetype';
 
 import type {
   SchedulingParametersExtension,

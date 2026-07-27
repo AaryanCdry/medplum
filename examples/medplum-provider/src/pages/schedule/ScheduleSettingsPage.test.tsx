@@ -3,6 +3,12 @@
 import { MantineProvider } from '@mantine/core';
 import { Notifications, notifications } from '@mantine/notifications';
 import type { WithId } from '@medplum/core';
+import {
+  isCodeableReferenceLikeTo,
+  SchedulingParametersURI,
+  ServiceTypeReferenceURI,
+  toCodeableReferenceLike,
+} from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import { DrAliceSmith, DrAliceSmithSchedule, MockClient } from '@medplum/mock';
 import { MedplumProvider } from '@medplum/react';
@@ -10,11 +16,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { SchedulingParametersURI } from '../../utils/scheduling';
-import { isCodeableReferenceLikeTo, toCodeableReferenceLike } from '../../utils/servicetype';
 import { ScheduleSettings, ScheduleSettingsPage } from './ScheduleSettingsPage';
-
-const ServiceTypeReferenceURI = 'https://medplum.com/fhir/service-type-reference';
 
 describe('ScheduleSettings', () => {
   let medplum: MockClient;

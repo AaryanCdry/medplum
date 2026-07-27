@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { WithId } from '@medplum/core';
-import { badRequest, createReference, isDefined, OperationOutcomeError } from '@medplum/core';
+import { badRequest, createReference, isDefined, OperationOutcomeError, SchedulingParametersURI } from '@medplum/core';
 import type {
   Extension,
   HealthcareService,
@@ -23,8 +23,6 @@ import {
 import { LayeredDict } from '../../../util/layereddict';
 import type { WithPath } from '../../../util/withpath';
 import { getPath, withPath } from '../../../util/withpath';
-
-const SchedulingParametersURI = 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters';
 
 // The duration units we allow in the SchedulingParameters extension
 // - "ms", "s" are not allowed due to being too fine grained (scheduling works at minute intervals only)

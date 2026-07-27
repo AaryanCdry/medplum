@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import { Button } from '@mantine/core';
+import { SchedulingParametersURI } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import type { Meta } from '@storybook/react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 import { Document } from '../Document/Document';
 import { ScheduleAvailabilityEditor } from './ScheduleAvailabilityEditor';
-import { SchedulingParametersURI } from './ScheduleAvailabilityEditor.utils';
 
 export default {
   title: 'Medplum/ScheduleAvailabilityEditor',

@@ -15,24 +15,23 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
-import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
-import { ArrayAddButton } from '../buttons/ArrayAddButton';
-import { ArrayRemoveButton } from '../buttons/ArrayRemoveButton';
-import type { DayOfWeek, TimeRange, WeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import type { DayOfWeek, TimeRange, WeeklyAvailability } from '@medplum/core';
 import {
   applyWeeklyAvailability,
   clearAvailabilityOverride,
-  DAY_LABELS,
   DAYS_OF_WEEK,
   emptyWeeklyAvailability,
   getSchedulingTimezone,
   hasAvailabilityOverride,
   parseServiceAvailability,
   parseWeeklyAvailability,
-  validateWeeklyAvailability,
-} from './ScheduleAvailabilityEditor.utils';
+} from '@medplum/core';
+import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
+import type { JSX } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrayAddButton } from '../buttons/ArrayAddButton';
+import { ArrayRemoveButton } from '../buttons/ArrayRemoveButton';
+import { DAY_LABELS, validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
 
 const DEFAULT_RANGE: TimeRange = { start: '09:00:00', end: '17:00:00' };
 

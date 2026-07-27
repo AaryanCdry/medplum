@@ -1,10 +1,5 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import type { Extension, HealthcareService, Schedule } from '@medplum/fhirtypes';
-import { MockClient } from '@medplum/mock';
-import { MedplumProvider } from '@medplum/react-hooks';
-import { act, fireEvent, render, screen } from '../test-utils/render';
-import { ScheduleAvailabilityEditor } from './ScheduleAvailabilityEditor';
 import {
   applyWeeklyAvailability,
   buildAvailabilityExtension,
@@ -15,8 +10,13 @@ import {
   parseServiceAvailability,
   parseWeeklyAvailability,
   SchedulingParametersURI,
-  validateWeeklyAvailability,
-} from './ScheduleAvailabilityEditor.utils';
+} from '@medplum/core';
+import type { Extension, HealthcareService, Schedule } from '@medplum/fhirtypes';
+import { MockClient } from '@medplum/mock';
+import { MedplumProvider } from '@medplum/react-hooks';
+import { act, fireEvent, render, screen } from '../test-utils/render';
+import { ScheduleAvailabilityEditor } from './ScheduleAvailabilityEditor';
+import { validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
 
 const service: HealthcareService = {
   resourceType: 'HealthcareService',

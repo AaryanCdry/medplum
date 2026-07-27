@@ -7,10 +7,12 @@ import {
   createReference,
   DEFAULT_MAX_SEARCH_COUNT,
   DEFAULT_SEARCH_COUNT,
+  isCodeableReferenceLikeTo,
   isNotFound,
   isReference,
   OperationOutcomeError,
   resolveId,
+  toCodeableReferenceLike,
 } from '@medplum/core';
 import type { FhirRequest, FhirResponse } from '@medplum/fhir-router';
 import type { Appointment, Bundle, HealthcareService, Reference, Schedule, Slot } from '@medplum/fhirtypes';
@@ -18,7 +20,6 @@ import assert from 'node:assert';
 import { getAuthenticatedContext } from '../../context';
 import { flatMapMax } from '../../util/array';
 import { addMinutes, earliest, latest } from '../../util/date';
-import { isCodeableReferenceLikeTo, toCodeableReferenceLike } from '../../util/servicetype';
 import type { WithPath } from '../../util/withpath';
 import { copyPaths, getPath, withPath, withPaths } from '../../util/withpath';
 import { makeOperationDefinition } from './definitions';

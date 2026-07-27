@@ -2,16 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Alert, Badge, Button, Group, Loader, Stack, Switch, Text, Title, Tooltip } from '@mantine/core';
 import type { WithId } from '@medplum/core';
-import { deepClone, EMPTY, formatReferenceString, getExtensionValue, getReferenceString } from '@medplum/core';
-import type { HealthcareService, Reference, Schedule } from '@medplum/fhirtypes';
 import {
-  Document,
+  deepClone,
+  EMPTY,
+  formatReferenceString,
+  getExtensionValue,
+  getReferenceString,
   hasAvailabilityOverride,
-  MedplumLink,
-  OperationOutcomeAlert,
-  ScheduleAvailabilityEditor,
-  useMedplum,
-} from '@medplum/react';
+  hasSchedulingParameters,
+  isCodeableReferenceLikeTo,
+  ServiceTypeReferenceURI,
+  toCodeableReferenceLike,
+} from '@medplum/core';
+import type { HealthcareService, Reference, Schedule } from '@medplum/fhirtypes';
+import { Document, MedplumLink, OperationOutcomeAlert, ScheduleAvailabilityEditor, useMedplum } from '@medplum/react';
 import { useResource, useSearchResources } from '@medplum/react-hooks';
 import { IconAlertCircle } from '@tabler/icons-react';
 import type { JSX } from 'react';
@@ -20,8 +24,6 @@ import { useParams } from 'react-router';
 import { AlphaBanner } from '../../components/AlphaBanner';
 import { DocsLink } from '../../components/DocsLink';
 import { showErrorNotification, showSuccessNotification } from '../../utils/notifications';
-import { hasSchedulingParameters } from '../../utils/scheduling';
-import { isCodeableReferenceLikeTo, ServiceTypeReferenceURI, toCodeableReferenceLike } from '../../utils/servicetype';
 
 // Eventually we should paginate the HealthcareService search so this is not a
 // hard limit. We expect that 1000 rows should be plenty for most providers, so

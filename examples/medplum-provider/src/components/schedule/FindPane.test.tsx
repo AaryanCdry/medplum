@@ -3,7 +3,7 @@
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import type { WithId } from '@medplum/core';
-import { ReadablePromise } from '@medplum/core';
+import { ReadablePromise, SchedulingParametersURI, toCodeableReferenceLike } from '@medplum/core';
 import type {
   Appointment,
   CodeableConcept,
@@ -20,12 +20,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createEncounter } from '../../utils/encounter';
-import {
-  SchedulingEncounterCodingURI,
-  SchedulingParametersURI,
-  SchedulingPlanDefinitionURI,
-} from '../../utils/scheduling';
-import { toCodeableReferenceLike } from '../../utils/servicetype';
+import { SchedulingEncounterCodingURI, SchedulingPlanDefinitionURI } from '../../utils/scheduling';
 import { FindPane } from './FindPane';
 
 vi.mock('../../utils/encounter', () => ({ createEncounter: vi.fn() }));
