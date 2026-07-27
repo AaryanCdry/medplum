@@ -406,6 +406,20 @@ describe('ScheduleAvailabilityEditor component', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
+  test('clearing a time input reports a missing time and disables Save', async () => {
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
+    const { onSave } = setup(schedule);
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('schedule-availability-start-mon-0'), { target: { value: '' } });
+    });
+
+    expect(screen.getByTestId('schedule-availability-start-mon-0')).toHaveValue('');
+    expect(screen.getByTestId('schedule-availability-error-mon')).toHaveTextContent('Start and end times are required');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   test('seeds from the service default and shows the default badge when there is no override', () => {
     setup(scheduleWithoutOverride(), vi.fn(), vi.fn(), serviceWithHours);
 

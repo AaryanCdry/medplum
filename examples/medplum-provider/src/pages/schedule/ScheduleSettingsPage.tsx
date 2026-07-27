@@ -57,6 +57,10 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
         serviceType: [...(prevValue.serviceType ?? EMPTY), ...serviceType],
       }));
     } else {
+      // Only the serviceType link is removed; any SchedulingParameters override
+      // for this service is deliberately kept so re-enabling restores the hours
+      // the user configured. The override is inert while unlinked, because
+      // scheduling resolves parameters only for services listed in serviceType.
       setSchedule((prevValue) => {
         const refString = getReferenceString(service);
         const serviceType = prevValue.serviceType?.filter((cc) => {

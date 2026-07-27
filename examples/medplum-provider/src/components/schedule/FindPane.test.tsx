@@ -3,7 +3,12 @@
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import type { WithId } from '@medplum/core';
-import { ReadablePromise, SchedulingParametersURI, toCodeableReferenceLike } from '@medplum/core';
+import {
+  ReadablePromise,
+  SchedulingParametersURI,
+  ServiceTypeReferenceURI,
+  toCodeableReferenceLike,
+} from '@medplum/core';
 import type {
   Appointment,
   CodeableConcept,
@@ -24,7 +29,6 @@ import { SchedulingEncounterCodingURI, SchedulingPlanDefinitionURI } from '../..
 import { FindPane } from './FindPane';
 
 vi.mock('../../utils/encounter', () => ({ createEncounter: vi.fn() }));
-const ServiceTypeReferenceURI = 'https://medlpum.com/fhir/service-type-reference';
 
 describe('FindPane', () => {
   let medplum: MockClient;

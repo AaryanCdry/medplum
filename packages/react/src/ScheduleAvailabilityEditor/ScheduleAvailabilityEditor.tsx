@@ -35,6 +35,13 @@ import { DAY_LABELS, validateWeeklyAvailability } from './ScheduleAvailabilityEd
 
 const DEFAULT_RANGE: TimeRange = { start: '09:00:00', end: '17:00:00' };
 
+// A cleared `type="time"` input reports an empty string. Keep it empty rather
+// than appending seconds, so validation reports the time as missing instead of
+// treating a malformed ":00" as a real value.
+function toTimeOfDay(value: string): string {
+  return value ? `${value}:00` : '';
+}
+
 // Internal draft entry, adding a stable id so range rows keep their identity as
 // they are added/removed.
 interface DraftRange extends TimeRange {
@@ -283,7 +290,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
                           aria-label={`${DAY_LABELS[day]} start time ${index + 1}`}
                           data-testid={`schedule-availability-start-${day}-${index}`}
                           value={range.start.slice(0, 5)}
-                          onChange={(e) => updateRange(day, index, { start: `${e.currentTarget.value}:00` })}
+                          onChange={(e) => updateRange(day, index, { start: toTimeOfDay(e.currentTarget.value) })}
                           style={{ flexGrow: 1 }}
                         />
                         <Text size="sm" c="dimmed">
@@ -294,7 +301,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
                           aria-label={`${DAY_LABELS[day]} end time ${index + 1}`}
                           data-testid={`schedule-availability-end-${day}-${index}`}
                           value={range.end.slice(0, 5)}
-                          onChange={(e) => updateRange(day, index, { end: `${e.currentTarget.value}:00` })}
+                          onChange={(e) => updateRange(day, index, { end: toTimeOfDay(e.currentTarget.value) })}
                           style={{ flexGrow: 1 }}
                         />
                         <ArrayRemoveButton
