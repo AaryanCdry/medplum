@@ -65,10 +65,7 @@ export function emptyWeeklyAvailability(): WeeklyAvailability {
 
 // Find the `SchedulingParameters` extension on the Schedule whose `service`
 // sub-extension references the given HealthcareService.
-export function getServiceSchedulingParameters(
-  schedule: Schedule,
-  service: HealthcareService
-): Extension | undefined {
+export function getServiceSchedulingParameters(schedule: Schedule, service: HealthcareService): Extension | undefined {
   const reference = createReference(service).reference;
   return schedule.extension?.find(
     (ext) =>
@@ -191,7 +188,9 @@ export function applyWeeklyAvailability(
   let params = updated.extension.find(
     (ext) =>
       ext.url === SchedulingParametersURI &&
-      (ext.extension?.some((sub) => sub.url === 'service' && sub.valueReference?.reference === serviceReference.reference) ??
+      (ext.extension?.some(
+        (sub) => sub.url === 'service' && sub.valueReference?.reference === serviceReference.reference
+      ) ??
         false)
   );
 

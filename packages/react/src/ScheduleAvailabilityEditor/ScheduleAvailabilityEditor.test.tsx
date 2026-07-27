@@ -101,7 +101,10 @@ function getAvailableTimes(schedule: Schedule): Extension[] {
 
 describe('ScheduleAvailabilityEditor utils', () => {
   test('parseWeeklyAvailability expands availableTime into per-day ranges', () => {
-    const schedule = scheduleWith(availableTime('mon', '09:00:00', '12:00:00'), availableTime('wed', '09:00:00', '17:00:00'));
+    const schedule = scheduleWith(
+      availableTime('mon', '09:00:00', '12:00:00'),
+      availableTime('wed', '09:00:00', '17:00:00')
+    );
     const weekly = parseWeeklyAvailability(schedule, service);
     expect(weekly.mon).toEqual({ allDay: false, ranges: [{ start: '09:00:00', end: '12:00:00' }] });
     expect(weekly.wed).toEqual({ allDay: false, ranges: [{ start: '09:00:00', end: '17:00:00' }] });
@@ -296,13 +299,7 @@ describe('ScheduleAvailabilityEditor component', () => {
   ): { onSave: any; onClose: any } {
     render(
       <MedplumProvider medplum={new MockClient()}>
-        <ScheduleAvailabilityEditor
-          schedule={schedule}
-          service={svc}
-          opened={true}
-          onClose={onClose}
-          onSave={onSave}
-        />
+        <ScheduleAvailabilityEditor schedule={schedule} service={svc} opened={true} onClose={onClose} onSave={onSave} />
       </MedplumProvider>
     );
     return { onSave, onClose };
