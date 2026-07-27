@@ -290,6 +290,14 @@ In this example:
 - Call Center availability is defined in `America/New_York` time zone (Mon-Wed 9am-5pm Eastern)
 - Each service type's availability times are interpreted independently based on their respective timezones
 
+## Editing Availability in a React App
+
+Rather than hand-authoring the [`availability` extension](#availability-extension), the [`@medplum/react`](/docs/react) library provides a `ScheduleAvailabilityEditor` component — a drawer for editing a Schedule's weekly `availability` override for a given service type. It implements the [override behavior](#override-behavior) described above: it seeds from the [service-level default](#service-level-availability) when the Schedule has no override, treats any edit as an override, and can reset back to inheriting the default. It is used in the [Medplum Provider](https://github.com/medplum/medplum/tree/main/examples/medplum-provider) example app.
+
+The component is controlled — it returns an updated `Schedule` for you to persist (for example, via `medplum.updateResource`). The same module also exports the framework-agnostic helpers it is built on, for reading, writing, and validating the `availability` override without the UI (for example, in a bot or a custom editor).
+
+See the [`ScheduleAvailabilityEditor` stories in Storybook](https://storybook.medplum.com/?path=/docs/medplum-scheduleavailabilityeditor--docs) for interactive examples and the full component and utility API.
+
 ## Examples
 
 ### Example 1: Simple Primary Care Office with Appointment Type Defaults
