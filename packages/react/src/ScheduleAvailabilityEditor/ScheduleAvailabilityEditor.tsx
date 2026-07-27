@@ -51,10 +51,18 @@ type DraftAvailability = Record<DayOfWeek, DayDraft>;
 
 export interface ScheduleAvailabilityEditorProps {
   readonly schedule: Schedule;
-  readonly service: HealthcareService;
+  /**
+   * The service whose availability is being edited. May be `undefined` while the
+   * drawer is closed. Keep the component mounted and toggle `opened` (rather than
+   * conditionally rendering it) so the open/close animations play; Mantine only
+   * animates a transition that is already mounted when `opened` changes.
+   */
+  readonly service: HealthcareService | undefined;
   readonly opened: boolean;
   readonly onClose: () => void;
   readonly onSave: (updatedSchedule: Schedule) => void | Promise<void>;
+  /** Called after the close transition finishes, e.g. to clear the selected service. */
+  readonly onExitTransitionEnd?: () => void;
 }
 
 function toDraft(weekly: WeeklyAvailability, nextId: { current: number }): DraftAvailability {
@@ -80,7 +88,7 @@ function toWeekly(draft: DraftAvailability): WeeklyAvailability {
 }
 
 export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProps): JSX.Element {
-  const { schedule, service, opened, onClose, onSave } = props;
+  const { schedule, service, opened, onClose, onSave, onExitTransitionEnd } = props;
   const nextId = useRef(0);
   const [draft, setDraft] = useState<DraftAvailability>(() => emptyDraft());
   const [saving, setSaving] = useState(false);
@@ -93,7 +101,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // service, seed from the service-level default so the editor shows the hours
   // currently in effect rather than a blank week.
   useEffect(() => {
-    if (opened) {
+    if (opened && service) {
       nextId.current = 0;
       const override = hasAvailabilityOverride(schedule, service);
       const weekly = override ? parseWeeklyAvailability(schedule, service) : parseServiceAvailability(service);
@@ -102,7 +110,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
     }
   }, [opened, schedule, service]);
 
-  const timezone = getSchedulingTimezone(schedule, service);
+  const timezone = service ? getSchedulingTimezone(schedule, service) : undefined;
   const validation = validateWeeklyAvailability(toWeekly(draft));
 
   // Any manual edit diverges from the service default, so mark the draft as an override.
@@ -113,6 +121,9 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
 
   // Discard the override and restore the inherited service-default hours.
   function resetToServiceDefault(): void {
+    if (!service) {
+      return;
+    }
     nextId.current = 0;
     setDraft(toDraft(parseServiceAvailability(service), nextId));
     setOverriding(false);
@@ -150,7 +161,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   }
 
   async function handleSave(): Promise<void> {
-    if (!validation.valid) {
+    if (!validation.valid || !service) {
       return;
     }
     setSaving(true);
@@ -169,6 +180,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
     <Drawer
       opened={opened}
       onClose={onClose}
+      onExitTransitionEnd={onExitTransitionEnd}
       position="right"
       size="md"
       padding={0}
@@ -179,7 +191,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
           <Text fw={600} size="lg">
             Weekly availability
           </Text>
-          {service.name && (
+          {service?.name && (
             <Text size="sm" c="dimmed">
               {service.name}
             </Text>

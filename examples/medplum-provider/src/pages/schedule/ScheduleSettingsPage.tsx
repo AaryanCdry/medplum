@@ -36,7 +36,11 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The editor drawer stays mounted so Mantine can animate open/close; only
+  // `editorOpened` toggles. `editingService` selects which service it edits and
+  // is cleared after the close animation via `onExitTransitionEnd`.
   const [editingService, setEditingService] = useState<WithId<HealthcareService>>();
+  const [editorOpened, setEditorOpened] = useState(false);
 
   // Store a copy of the Schedule that we can mutate while the viewer manipulates
   // the UI
@@ -140,7 +144,14 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
                       {overriding ? 'Custom hours' : 'Service default'}
                     </Badge>
                   </Tooltip>
-                  <Button variant="subtle" size="compact-sm" onClick={() => setEditingService(service)}>
+                  <Button
+                    variant="subtle"
+                    size="compact-sm"
+                    onClick={() => {
+                      setEditingService(service);
+                      setEditorOpened(true);
+                    }}
+                  >
                     Edit weekly hours
                   </Button>
                 </Group>
@@ -149,18 +160,17 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
           );
         })}
       </Stack>
-      {editingService && (
-        <ScheduleAvailabilityEditor
-          schedule={schedule}
-          service={editingService}
-          opened={!!editingService}
-          onClose={() => setEditingService(undefined)}
-          onSave={(updated) => {
-            setSchedule(updated);
-            setDirty(true);
-          }}
-        />
-      )}
+      <ScheduleAvailabilityEditor
+        schedule={schedule}
+        service={editingService}
+        opened={editorOpened}
+        onClose={() => setEditorOpened(false)}
+        onExitTransitionEnd={() => setEditingService(undefined)}
+        onSave={(updated) => {
+          setSchedule(updated);
+          setDirty(true);
+        }}
+      />
       <Group justify="flex-end">
         <Button variant="outline" disabled={saving} component={MedplumLink} to={`/Calendar/Schedule/${schedule.id}`}>
           {dirty ? 'Cancel' : 'Back'}
