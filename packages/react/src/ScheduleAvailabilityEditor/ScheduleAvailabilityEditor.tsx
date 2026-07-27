@@ -27,11 +27,12 @@ import {
   parseWeeklyAvailability,
 } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
+import { useResource } from '@medplum/react-hooks';
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { ArrayAddButton } from '../buttons/ArrayAddButton';
 import { ArrayRemoveButton } from '../buttons/ArrayRemoveButton';
-import { DAY_LABELS, validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import { DAY_LABELS, hasAnyAvailableDay, validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
 
 const DEFAULT_RANGE: TimeRange = { start: '09:00:00', end: '17:00:00' };
 
@@ -116,8 +117,20 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
     }
   }, [opened, schedule, service]);
 
-  const timezone = service ? getSchedulingTimezone(schedule, service) : undefined;
-  const validation = validateWeeklyAvailability(toWeekly(draft));
+  // Scheduling falls back to the actor's timezone extension when neither the
+  // Schedule nor the service parameters specify one, which is the most common
+  // setup, so the actor has to be loaded to resolve the timezone the same way
+  // the server does. Scheduling requires exactly one actor per Schedule.
+  const actor = useResource(schedule.actor[0]);
+  const timezone = service ? getSchedulingTimezone(schedule, service, actor) : undefined;
+  const weekly = toWeekly(draft);
+  const validation = validateWeeklyAvailability(weekly);
+  // An override with zero available days serializes to `{ url: 'availability',
+  // extension: [] }`, which fails FHIR constraint ext-1 on write. Require at
+  // least one available day for custom hours; to disable a service on this
+  // calendar, toggle it off in schedule settings instead.
+  const emptyOverride = overriding && !hasAnyAvailableDay(weekly);
+  const canSave = validation.valid && !emptyOverride;
 
   // Any manual edit diverges from the service default, so mark the draft as an override.
   function setDay(day: DayOfWeek, value: DayDraft): void {
@@ -167,13 +180,13 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   }
 
   async function handleSave(): Promise<void> {
-    if (!validation.valid || !service) {
+    if (!canSave || !service) {
       return;
     }
     setSaving(true);
     try {
       const updated = overriding
-        ? applyWeeklyAvailability(schedule, service, toWeekly(draft))
+        ? applyWeeklyAvailability(schedule, service, weekly)
         : clearAvailabilityOverride(schedule, service);
       await onSave(updated);
       onClose();
@@ -242,7 +255,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
               : 'This schedule follows the default hours defined on the service. Editing any day creates an override.'}
           </Text>
           {timezone && (
-            <Text size="xs" c="dimmed">
+            <Text size="xs" c="dimmed" data-testid="schedule-availability-timezone">
               Hours are interpreted in the {timezone} timezone.
             </Text>
           )}
@@ -331,11 +344,17 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
         </Stack>
       </ScrollArea>
       <Box px="lg" py="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+        {emptyOverride && (
+          <Text size="xs" c="red" mb="sm" data-testid="schedule-availability-empty-override">
+            Custom hours must include at least one available day. To disable this service on the calendar, turn it off
+            in schedule settings.
+          </Text>
+        )}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave} loading={saving} disabled={!validation.valid}>
+          <Button onClick={handleSave} loading={saving} disabled={!canSave}>
             Save
           </Button>
         </Group>

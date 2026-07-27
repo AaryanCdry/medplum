@@ -4,19 +4,21 @@ import {
   applyWeeklyAvailability,
   buildAvailabilityExtension,
   clearAvailabilityOverride,
+  createReference,
   emptyWeeklyAvailability,
   getServiceSchedulingParameters,
   hasAvailabilityOverride,
   parseServiceAvailability,
   parseWeeklyAvailability,
   SchedulingParametersURI,
+  TimezoneExtensionURI,
 } from '@medplum/core';
-import type { Extension, HealthcareService, Schedule } from '@medplum/fhirtypes';
+import type { Extension, HealthcareService, Practitioner, Schedule } from '@medplum/fhirtypes';
 import { MockClient } from '@medplum/mock';
 import { MedplumProvider } from '@medplum/react-hooks';
 import { act, fireEvent, render, screen } from '../test-utils/render';
 import { ScheduleAvailabilityEditor } from './ScheduleAvailabilityEditor';
-import { validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import { hasAnyAvailableDay, validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
 
 const service: HealthcareService = {
   resourceType: 'HealthcareService',
@@ -255,6 +257,18 @@ describe('ScheduleAvailabilityEditor utils', () => {
     expect(validateWeeklyAvailability(weekly).valid).toBe(true);
   });
 
+  test('hasAnyAvailableDay is false only when every day is unavailable', () => {
+    expect(hasAnyAvailableDay(emptyWeeklyAvailability())).toBe(false);
+
+    const withRange = emptyWeeklyAvailability();
+    withRange.fri.ranges = [{ start: '09:00:00', end: '17:00:00' }];
+    expect(hasAnyAvailableDay(withRange)).toBe(true);
+
+    const withAllDay = emptyWeeklyAvailability();
+    withAllDay.sun.allDay = true;
+    expect(hasAnyAvailableDay(withAllDay)).toBe(true);
+  });
+
   test('parseServiceAvailability expands HealthcareService.availableTime', () => {
     const weekly = parseServiceAvailability(serviceWithHours);
     expect(weekly.mon).toEqual({ allDay: false, ranges: [{ start: '08:00:00', end: '16:00:00' }] });
@@ -481,5 +495,55 @@ describe('ScheduleAvailabilityEditor component', () => {
 
     const updated: Schedule = onSave.mock.calls[0][0];
     expect(hasAvailabilityOverride(updated, serviceWithHours)).toBe(false);
+  });
+
+  test('shows the timezone from the Schedule actor', async () => {
+    const medplum = new MockClient();
+    const practitioner = await medplum.createResource<Practitioner>({
+      resourceType: 'Practitioner',
+      extension: [{ url: TimezoneExtensionURI, valueCode: 'America/Los_Angeles' }],
+    });
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
+    schedule.actor = [createReference(practitioner)];
+
+    await act(async () => {
+      render(
+        <MedplumProvider medplum={medplum}>
+          <ScheduleAvailabilityEditor
+            schedule={schedule}
+            service={service}
+            opened={true}
+            onClose={vi.fn()}
+            onSave={vi.fn()}
+          />
+        </MedplumProvider>
+      );
+    });
+
+    expect(screen.getByTestId('schedule-availability-timezone')).toHaveTextContent(
+      'Hours are interpreted in the America/Los_Angeles timezone.'
+    );
+  });
+
+  test('omits the timezone note when no timezone is configured', () => {
+    setup(scheduleWith(availableTime('mon', '09:00:00', '17:00:00')));
+    expect(screen.queryByTestId('schedule-availability-timezone')).toBeNull();
+  });
+
+  test('disables Save when a custom override has no available days', async () => {
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
+    const { onSave } = setup(schedule);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('schedule-availability-switch-mon'));
+    });
+
+    expect(screen.getByTestId('schedule-availability-empty-override')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

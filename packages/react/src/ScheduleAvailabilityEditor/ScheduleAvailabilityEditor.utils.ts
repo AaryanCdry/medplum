@@ -18,6 +18,11 @@ export interface WeeklyAvailabilityValidation {
   readonly errors: Partial<Record<DayOfWeek, string>>;
 }
 
+/** Returns true when at least one day is available (all-day or has a range). */
+export function hasAnyAvailableDay(weekly: WeeklyAvailability): boolean {
+  return DAYS_OF_WEEK.some((day) => weekly[day].allDay || weekly[day].ranges.length > 0);
+}
+
 // Validate that every range has end > start and that ranges within a day do not
 // overlap. Empty days are valid (interpreted as unavailable).
 export function validateWeeklyAvailability(weekly: WeeklyAvailability): WeeklyAvailabilityValidation {

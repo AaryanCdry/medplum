@@ -53,6 +53,16 @@ export function hasSchedulingParameters(resource: Schedule | HealthcareService):
   return !!getExtension(resource, SchedulingParametersURI);
 }
 
+function matchesServiceSchedulingParameters(extension: Extension, serviceReference: string): boolean {
+  return (
+    extension.url === SchedulingParametersURI &&
+    (extension.extension?.some(
+      (subextension) => subextension.url === 'service' && subextension.valueReference?.reference === serviceReference
+    ) ??
+      false)
+  );
+}
+
 /**
  * Finds the SchedulingParameters extension on a Schedule for a HealthcareService.
  * @param schedule - Schedule to inspect
@@ -61,14 +71,7 @@ export function hasSchedulingParameters(resource: Schedule | HealthcareService):
  */
 export function getServiceSchedulingParameters(schedule: Schedule, service: HealthcareService): Extension | undefined {
   const reference = createReference(service).reference;
-  return schedule.extension?.find(
-    (extension) =>
-      extension.url === SchedulingParametersURI &&
-      (extension.extension?.some(
-        (subextension) => subextension.url === 'service' && subextension.valueReference?.reference === reference
-      ) ??
-        false)
-  );
+  return schedule.extension?.find((extension) => matchesServiceSchedulingParameters(extension, reference));
 }
 
 /**
@@ -196,14 +199,8 @@ export function applyWeeklyAvailability(
 
   updated.extension = updated.extension ? [...updated.extension] : [];
 
-  let parameters = updated.extension.find(
-    (extension) =>
-      extension.url === SchedulingParametersURI &&
-      (extension.extension?.some(
-        (subextension) =>
-          subextension.url === 'service' && subextension.valueReference?.reference === serviceReference.reference
-      ) ??
-        false)
+  let parameters = updated.extension.find((extension) =>
+    matchesServiceSchedulingParameters(extension, serviceReference.reference)
   );
 
   if (!parameters) {
@@ -232,14 +229,8 @@ export function clearAvailabilityOverride(schedule: Schedule, service: Healthcar
   const updated = deepClone(schedule);
   const serviceReference = createReference(service);
 
-  const parameters = updated.extension?.find(
-    (extension) =>
-      extension.url === SchedulingParametersURI &&
-      (extension.extension?.some(
-        (subextension) =>
-          subextension.url === 'service' && subextension.valueReference?.reference === serviceReference.reference
-      ) ??
-        false)
+  const parameters = updated.extension?.find((extension) =>
+    matchesServiceSchedulingParameters(extension, serviceReference.reference)
   );
 
   if (parameters?.extension) {
