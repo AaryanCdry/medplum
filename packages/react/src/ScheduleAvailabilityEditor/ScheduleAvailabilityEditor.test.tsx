@@ -15,7 +15,11 @@ import { ScheduleAvailabilityEditor } from './ScheduleAvailabilityEditor';
 import {
   blankWeeklyAvailability,
   fromWeeklyAvailability,
+  getSpilloverByDay,
   hasAnyAvailableDay,
+  isFullDayRange,
+  isOvernightRange,
+  nextDayOfWeek,
   toWeeklyAvailability,
   validateWeeklyAvailability,
 } from './ScheduleAvailabilityEditor.utils';
@@ -130,14 +134,10 @@ describe('ScheduleAvailabilityEditor utils', () => {
     });
   });
 
-  test('validateWeeklyAvailability rejects a missing or backwards range', () => {
-    const backwards = blankWeeklyAvailability();
-    backwards.mon.ranges = [{ start: '17:00:00', end: '09:00:00' }];
-    expect(validateWeeklyAvailability(backwards).valid).toBe(false);
-    expect(validateWeeklyAvailability(backwards).errors.mon).toBe('End time must be after start time');
-
+  test('validateWeeklyAvailability requires both times', () => {
     const missing = blankWeeklyAvailability();
     missing.mon.ranges = [{ start: '', end: '09:00:00' }];
+    expect(validateWeeklyAvailability(missing).valid).toBe(false);
     expect(validateWeeklyAvailability(missing).errors.mon).toBe('Start and end times are required');
 
     const ok = blankWeeklyAvailability();
@@ -145,7 +145,28 @@ describe('ScheduleAvailabilityEditor utils', () => {
     expect(validateWeeklyAvailability(ok).valid).toBe(true);
   });
 
-  test('validateWeeklyAvailability warns about overlaps without invalidating them', () => {
+  test('validateWeeklyAvailability accepts a range running into the next day', () => {
+    const overnight = blankWeeklyAvailability();
+    overnight.mon.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+
+    const validation = validateWeeklyAvailability(overnight);
+    expect(validation.valid).toBe(true);
+    expect(validation.errors.mon).toBeUndefined();
+    expect(validation.warnings.mon).toBeUndefined();
+  });
+
+  test('validateWeeklyAvailability steers a same-time range toward all day', () => {
+    const sameTime = blankWeeklyAvailability();
+    sameTime.tue.ranges = [{ start: '09:00:00', end: '09:00:00' }];
+
+    const validation = validateWeeklyAvailability(sameTime);
+    expect(validation.valid).toBe(true);
+    expect(validation.warnings.tue).toBe(
+      'A range ending at its start time covers a full 24 hours. Use "Available all day" instead.'
+    );
+  });
+
+  test('validateWeeklyAvailability leaves overlapping ranges alone', () => {
     const overlap = blankWeeklyAvailability();
     overlap.tue.ranges = [
       { start: '09:00:00', end: '13:00:00' },
@@ -155,7 +176,64 @@ describe('ScheduleAvailabilityEditor utils', () => {
     const validation = validateWeeklyAvailability(overlap);
     expect(validation.valid).toBe(true);
     expect(validation.errors.tue).toBeUndefined();
-    expect(validation.warnings.tue).toBe('Time ranges overlap');
+    expect(validation.warnings.tue).toBeUndefined();
+  });
+
+  test('isOvernightRange and isFullDayRange classify how a range wraps', () => {
+    expect(isOvernightRange({ start: '22:00:00', end: '06:00:00' })).toBe(true);
+    expect(isOvernightRange({ start: '09:00:00', end: '17:00:00' })).toBe(false);
+    // Ending exactly at midnight still wraps, since FHIR time cannot say 24:00.
+    expect(isOvernightRange({ start: '22:00:00', end: '00:00:00' })).toBe(true);
+    // A same-time range is a full day, not an overnight window.
+    expect(isOvernightRange({ start: '09:00:00', end: '09:00:00' })).toBe(false);
+    expect(isFullDayRange({ start: '09:00:00', end: '09:00:00' })).toBe(true);
+    expect(isFullDayRange({ start: '09:00:00', end: '17:00:00' })).toBe(false);
+
+    // Incomplete ranges are classified as neither.
+    expect(isOvernightRange({ start: '', end: '06:00:00' })).toBe(false);
+    expect(isFullDayRange({ start: '', end: '' })).toBe(false);
+  });
+
+  test('nextDayOfWeek advances and wraps at the end of the week', () => {
+    expect(nextDayOfWeek('mon')).toBe('tue');
+    expect(nextDayOfWeek('sat')).toBe('sun');
+    expect(nextDayOfWeek('sun')).toBe('mon');
+  });
+
+  test('getSpilloverByDay reports overnight time landing on an unavailable day', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+
+    expect(getSpilloverByDay(weekly)).toEqual({ sat: [{ from: 'fri', end: '06:00:00' }] });
+  });
+
+  test('getSpilloverByDay wraps from Sunday into Monday', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.sun.ranges = [{ start: '20:00:00', end: '02:00:00' }];
+
+    expect(getSpilloverByDay(weekly)).toEqual({ mon: [{ from: 'sun', end: '02:00:00' }] });
+  });
+
+  test('getSpilloverByDay ignores days that already show their own hours', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+    weekly.sat.ranges = [{ start: '09:00:00', end: '17:00:00' }];
+    expect(getSpilloverByDay(weekly)).toEqual({});
+
+    const allDayNext = blankWeeklyAvailability();
+    allDayNext.fri.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+    allDayNext.sat.allDay = true;
+    expect(getSpilloverByDay(allDayNext)).toEqual({});
+  });
+
+  test('getSpilloverByDay ignores windows that stop at midnight', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.ranges = [{ start: '22:00:00', end: '00:00:00' }];
+    expect(getSpilloverByDay(weekly)).toEqual({});
+
+    const sameDay = blankWeeklyAvailability();
+    sameDay.fri.ranges = [{ start: '09:00:00', end: '17:00:00' }];
+    expect(getSpilloverByDay(sameDay)).toEqual({});
   });
 
   test('validateWeeklyAvailability treats allDay days as valid', () => {
@@ -293,19 +371,67 @@ describe('ScheduleAvailabilityEditor component', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 
-  test('invalid range disables Save', async () => {
+  test('an end time before the start time saves as an overnight window', async () => {
+    const schedule = scheduleWith(availableTime('mon', '22:00:00', '17:00:00'));
+    const { onSave } = setup(schedule);
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('schedule-availability-end-mon-0'), { target: { value: '06:00' } });
+    });
+
+    expect(screen.queryByTestId('schedule-availability-error-mon')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+
+    const updated: Schedule = onSave.mock.calls[0][0];
+    expect(extractAvailability(updated, service)).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '22:00:00', availableEndTime: '06:00:00' },
+    ]);
+  });
+
+  test('discloses inline that an overnight range ends on the next day', async () => {
+    setup(scheduleWith(availableTime('mon', '22:00:00', '06:00:00')));
+
+    expect(screen.getByTestId('schedule-availability-overnight-mon-0')).toHaveTextContent(
+      'Ends 6:00 AM on Tuesday, the next day.'
+    );
+  });
+
+  test('omits the next-day disclosure for a range within one day', async () => {
+    setup(scheduleWith(availableTime('mon', '09:00:00', '17:00:00')));
+
+    expect(screen.queryByTestId('schedule-availability-overnight-mon-0')).toBeNull();
+  });
+
+  test('notes overnight time landing on a day with no hours of its own', async () => {
+    setup(scheduleWith(availableTime('fri', '22:00:00', '06:00:00')));
+
+    expect(screen.getByTestId('schedule-availability-spillover-sat')).toHaveTextContent(
+      'Still available until 6:00 AM, carried over from Friday.'
+    );
+    // Days unaffected by the overnight window say nothing.
+    expect(screen.queryByTestId('schedule-availability-spillover-sun')).toBeNull();
+  });
+
+  test('steers a range ending at its start time toward all day', async () => {
     const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
     setup(schedule);
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId('schedule-availability-end-mon-0'), { target: { value: '08:00' } });
+      fireEvent.change(screen.getByTestId('schedule-availability-end-mon-0'), { target: { value: '09:00' } });
     });
 
-    expect(screen.getByTestId('schedule-availability-error-mon')).toBeDefined();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByTestId('schedule-availability-warning-mon')).toHaveTextContent(
+      'A range ending at its start time covers a full 24 hours. Use "Available all day" instead.'
+    );
+    // The value is meaningful to the server, so it is a nudge rather than a block.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
-  test('overlapping ranges warn but still save', async () => {
+  test('overlapping ranges save without a warning', async () => {
     const schedule = scheduleWith(availableTime('mon', '09:00:00', '13:00:00'));
     const { onSave } = setup(schedule);
 
@@ -319,7 +445,7 @@ describe('ScheduleAvailabilityEditor component', () => {
       fireEvent.change(screen.getByTestId('schedule-availability-end-mon-1'), { target: { value: '15:00' } });
     });
 
-    expect(screen.getByTestId('schedule-availability-warning-mon')).toHaveTextContent('Time ranges overlap');
+    expect(screen.queryByTestId('schedule-availability-warning-mon')).toBeNull();
     expect(screen.queryByTestId('schedule-availability-error-mon')).toBeNull();
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
 

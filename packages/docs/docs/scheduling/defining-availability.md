@@ -186,9 +186,13 @@ The `availability` sub-extension mirrors the FHIR R5+ [`Availability`](https://h
 
 When `availableEndTime` is less than or equal to `availableStartTime`, the window is read as continuing into the following day. An entry of `{ daysOfWeek: ['tue'], availableStartTime: '22:00:00', availableEndTime: '06:00:00' }` means 10pm Tuesday until 6am Wednesday. This is also how 24-hour availability is expressed without `allDay`: `00:00:00` to `00:00:00` on all seven days, since the FHIR [`time`](https://hl7.org/fhir/R4/datatypes.html#time) type does not permit `24:00`.
 
-:::note[Beta limitation]
+Because `00:00:00` is read as the following midnight rather than as the start of the same day, it is the correct way to say "until end of day". Do not use `23:59:59` for this: it leaves a one-second gap that splits the window in two, which prevents booking anything that spans midnight.
 
-The `ScheduleAvailabilityEditor` React component described [below](#editing-availability-in-a-react-app) cannot yet author these windows; it requires an end time after the start time. Overnight windows have to be written directly into the extension for now. This is expected to be revisited before scheduling leaves beta.
+A window is keyed to the day it **starts** on, and only that day needs to appear in `daysOfWeek`. An entry on `fri` ending at `06:00:00` makes Saturday morning bookable without `sat` being listed anywhere.
+
+:::note[Windows that cross midnight and other FHIR systems]
+
+This reading is Medplum's convention. The FHIR specification does not define what an end time before a start time means, and imposes no invariant either way, so the data is valid FHIR but other systems may not interpret it the same way. When publishing hours for outside consumption rather than for Medplum's scheduling operations, consider writing two entries (for example `22:00:00` to `23:59:59` on Tuesday plus `00:00:00` to `06:00:00` on Wednesday), which is more widely understood. The one-second gap does not matter for display, only for booking.
 
 :::
 
@@ -305,6 +309,8 @@ In this example:
 Rather than hand-authoring the [`availability` extension](#availability-extension), the [`@medplum/react`](/docs/react) library provides a `ScheduleAvailabilityEditor` component for editing a Schedule's weekly `availability` override for a given service type. It implements the [override behavior](#override-behavior) described above: it seeds from the [service-level default](#service-level-availability) when the Schedule has no override, treats any edit as an override, and can reset back to inheriting the default. It is used in the [Medplum Provider](https://github.com/medplum/medplum/tree/main/examples/medplum-provider) example app.
 
 The component renders form content only, so you choose the container: place it inline in a page, or wrap it in a Drawer or Modal. It is controlled, returning an updated `Schedule` for you to persist (for example, via `medplum.updateResource`). `@medplum/core` exports the framework-agnostic helpers it is built on, for reading and writing the `availability` override without the UI (for example, in a bot or a custom editor).
+
+It authors [windows that cross midnight](#windows-that-cross-midnight) directly: entering an end time earlier than the start time produces a single overnight entry, matching how the scheduling operations read it. Because that is easy to trigger by accident (by omitting AM/PM, for example), the editor spells out the consequence next to the affected hours, and a day with no hours of its own says so when the previous day's window reaches into it. Overlapping ranges on the same day are accepted without complaint, since the server merges them into one continuous window.
 
 See the [`ScheduleAvailabilityEditor` stories in Storybook](https://storybook.medplum.com/?path=/docs/medplum-scheduleavailabilityeditor--docs) for interactive examples and the full component and utility API.
 
@@ -600,3 +606,4 @@ A few constraints trip people up most often when configuring availability:
 The Scheduling API is under active development. This [beta](/docs/compliance/alpha-beta) release of the scheduling API is expected to gain additional capabilities.
 
 - `bookingLimit` - An upcoming scheduling parameter that will allow you to express how often a given service type may be added to a schedule. This is not yet implemented.
+- Editing availability on a calendar view, by dragging hours across days rather than typing times, is a possible future enhancement to the example app. The `ScheduleAvailabilityEditor` component covers this today with time inputs.

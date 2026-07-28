@@ -102,9 +102,108 @@ export function hasAnyAvailableDay(weekly: WeeklyAvailability): boolean {
   return DAYS_OF_WEEK.some((day) => weekly[day].allDay || weekly[day].ranges.length > 0);
 }
 
-// Validate that every range has end > start. Empty days are valid (interpreted
-// as unavailable). Overlapping ranges within a day are only warned about: the
-// server resolves them without trouble, but they usually indicate a mistake.
+/**
+ * Returns the day following the given one, wrapping from Sunday to Monday.
+ * @param day - The day to advance from
+ * @returns The next day of the week
+ */
+export function nextDayOfWeek(day: DayOfWeek): DayOfWeek {
+  return DAYS_OF_WEEK[(DAYS_OF_WEEK.indexOf(day) + 1) % DAYS_OF_WEEK.length];
+}
+
+// Seconds since midnight, or undefined when the time is missing or malformed.
+// FHIR `time` has no timezone, so this is a plain offset into the day.
+function toSecondsOfDay(time: string): number | undefined {
+  const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(time);
+  if (!match) {
+    return undefined;
+  }
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? 0);
+}
+
+// Scheduling reads `end <= start` as continuing past midnight, so both an
+// overnight window and a same-time (24 hour) window carry into the next day.
+function wrapsIntoNextDay(range: TimeRange): boolean {
+  const start = toSecondsOfDay(range.start);
+  const end = toSecondsOfDay(range.end);
+  return start !== undefined && end !== undefined && end <= start;
+}
+
+/**
+ * Returns whether a range runs past midnight into the following day.
+ *
+ * Scheduling reads an end time before the start time as continuing into the next
+ * day, so `22:00` to `06:00` means 10pm until 6am the next morning.
+ * @param range - The range to inspect
+ * @returns True when the range ends on the day after it starts
+ */
+export function isOvernightRange(range: TimeRange): boolean {
+  const start = toSecondsOfDay(range.start);
+  const end = toSecondsOfDay(range.end);
+  return start !== undefined && end !== undefined && end < start;
+}
+
+/**
+ * Returns whether a range starts and ends at the same time, which scheduling
+ * reads as a full 24 hours rather than an empty window. `allDay` expresses the
+ * same thing more clearly, so the editor steers toward it.
+ * @param range - The range to inspect
+ * @returns True when start and end are the same time
+ */
+export function isFullDayRange(range: TimeRange): boolean {
+  const start = toSecondsOfDay(range.start);
+  const end = toSecondsOfDay(range.end);
+  return start !== undefined && end !== undefined && start === end;
+}
+
+/** Availability that lands on a day from a window that started the day before. */
+export interface DaySpillover {
+  /** The day the window started on. */
+  readonly from: DayOfWeek;
+  /** The time the window ends, on the day it spills into. */
+  readonly end: string;
+}
+
+/**
+ * Finds availability that lands on days the editor shows as unavailable.
+ *
+ * Scheduling keys a window to its start day, so a Friday window ending at 6am
+ * also makes Saturday morning bookable even when Saturday has no hours of its
+ * own. The per-day cards would otherwise hide that, so the editor surfaces it.
+ * @param weekly - Day-keyed availability to inspect
+ * @returns Spillover keyed by the day receiving it, for unavailable days only
+ */
+export function getSpilloverByDay(weekly: WeeklyAvailability): Partial<Record<DayOfWeek, DaySpillover[]>> {
+  const spillover: Partial<Record<DayOfWeek, DaySpillover[]>> = {};
+
+  for (const from of DAYS_OF_WEEK) {
+    if (weekly[from].allDay) {
+      continue;
+    }
+    const to = nextDayOfWeek(from);
+    // Days with their own hours already show availability, so only call out the
+    // days that would otherwise read as fully unavailable.
+    if (weekly[to].allDay || weekly[to].ranges.length > 0) {
+      continue;
+    }
+    for (const range of weekly[from].ranges) {
+      // A window ending exactly at midnight stops on the day boundary, so it
+      // leaves no available time on the following day.
+      if (!wrapsIntoNextDay(range) || toSecondsOfDay(range.end) === 0) {
+        continue;
+      }
+      spillover[to] ??= [];
+      spillover[to].push({ from, end: range.end });
+    }
+  }
+
+  return spillover;
+}
+
+// Both times are required; beyond that a range is valid in any order, since
+// scheduling reads `end <= start` as running into the next day. Empty days are
+// valid too (interpreted as unavailable). Overlapping ranges are not flagged at
+// all: the server merges them into one continuous window.
 export function validateWeeklyAvailability(weekly: WeeklyAvailability): WeeklyAvailabilityValidation {
   const errors: Partial<Record<DayOfWeek, string>> = {};
   const warnings: Partial<Record<DayOfWeek, string>> = {};
@@ -114,32 +213,14 @@ export function validateWeeklyAvailability(weekly: WeeklyAvailability): WeeklyAv
       continue;
     }
     const ranges = weekly[day].ranges;
-    let dayError: string | undefined;
 
-    for (const range of ranges) {
-      if (!range.start || !range.end) {
-        dayError = 'Start and end times are required';
-        break;
-      }
-      if (range.end <= range.start) {
-        dayError = 'End time must be after start time';
-        break;
-      }
-    }
-
-    if (dayError) {
-      errors[day] = dayError;
+    if (ranges.some((range) => !range.start || !range.end)) {
+      errors[day] = 'Start and end times are required';
       continue;
     }
 
-    if (ranges.length > 1) {
-      const sorted = [...ranges].sort((a, b) => a.start.localeCompare(b.start));
-      for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i].start < sorted[i - 1].end) {
-          warnings[day] = 'Time ranges overlap';
-          break;
-        }
-      }
+    if (ranges.some(isFullDayRange)) {
+      warnings[day] = 'A range ending at its start time covers a full 24 hours. Use "Available all day" instead.';
     }
   }
 

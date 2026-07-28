@@ -20,6 +20,7 @@ import {
   clearAvailabilityOverride,
   DAYS_OF_WEEK,
   extractAvailability,
+  formatWallTime,
   getSchedulingTimezone,
   hasAvailabilityOverride,
 } from '@medplum/core';
@@ -33,7 +34,10 @@ import type { TimeRange, WeeklyAvailability } from './ScheduleAvailabilityEditor
 import {
   DAY_LABELS,
   fromWeeklyAvailability,
+  getSpilloverByDay,
   hasAnyAvailableDay,
+  isOvernightRange,
+  nextDayOfWeek,
   toWeeklyAvailability,
   validateWeeklyAvailability,
 } from './ScheduleAvailabilityEditor.utils';
@@ -132,6 +136,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   const timezone = getSchedulingTimezone(schedule, service, actor);
   const weekly = toWeekly(draft);
   const validation = validateWeeklyAvailability(weekly);
+  const spillover = getSpilloverByDay(weekly);
   // An override with zero available days serializes to `{ url: 'availability',
   // extension: [] }`, which fails FHIR constraint ext-1 on write. Require at
   // least one available day for custom hours; to disable a service on this
@@ -254,6 +259,18 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
                     data-testid={`schedule-availability-switch-${day}`}
                   />
                 </Group>
+                {!available &&
+                  spillover[day]?.map((spill) => (
+                    <Text
+                      key={`${spill.from}-${spill.end}`}
+                      size="xs"
+                      c="dimmed"
+                      mt="xs"
+                      data-testid={`schedule-availability-spillover-${day}`}
+                    >
+                      Still available until {formatWallTime(spill.end)}, carried over from {DAY_LABELS[spill.from]}.
+                    </Text>
+                  ))}
                 {available && (
                   <>
                     <Divider my="sm" />
@@ -269,32 +286,44 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
                 {available && !allDay && (
                   <Stack gap="xs" mt="sm">
                     {ranges.map((range, index) => (
-                      <Group key={range.id} gap="xs" wrap="nowrap" align="center">
-                        <TextInput
-                          type="time"
-                          aria-label={`${DAY_LABELS[day]} start time ${index + 1}`}
-                          data-testid={`schedule-availability-start-${day}-${index}`}
-                          value={range.start.slice(0, 5)}
-                          onChange={(e) => updateRange(day, index, { start: toTimeOfDay(e.currentTarget.value) })}
-                          style={{ flexGrow: 1 }}
-                        />
-                        <Text size="sm" c="dimmed">
-                          to
-                        </Text>
-                        <TextInput
-                          type="time"
-                          aria-label={`${DAY_LABELS[day]} end time ${index + 1}`}
-                          data-testid={`schedule-availability-end-${day}-${index}`}
-                          value={range.end.slice(0, 5)}
-                          onChange={(e) => updateRange(day, index, { end: toTimeOfDay(e.currentTarget.value) })}
-                          style={{ flexGrow: 1 }}
-                        />
-                        <ArrayRemoveButton
-                          propertyDisplayName="hours"
-                          testId={`schedule-availability-remove-${day}-${index}`}
-                          onClick={() => removeRange(day, index)}
-                        />
-                      </Group>
+                      <Box key={range.id}>
+                        <Group gap="xs" wrap="nowrap" align="center">
+                          <TextInput
+                            type="time"
+                            aria-label={`${DAY_LABELS[day]} start time ${index + 1}`}
+                            data-testid={`schedule-availability-start-${day}-${index}`}
+                            value={range.start.slice(0, 5)}
+                            onChange={(e) => updateRange(day, index, { start: toTimeOfDay(e.currentTarget.value) })}
+                            style={{ flexGrow: 1 }}
+                          />
+                          <Text size="sm" c="dimmed">
+                            to
+                          </Text>
+                          <TextInput
+                            type="time"
+                            aria-label={`${DAY_LABELS[day]} end time ${index + 1}`}
+                            data-testid={`schedule-availability-end-${day}-${index}`}
+                            value={range.end.slice(0, 5)}
+                            onChange={(e) => updateRange(day, index, { end: toTimeOfDay(e.currentTarget.value) })}
+                            style={{ flexGrow: 1 }}
+                          />
+                          <ArrayRemoveButton
+                            propertyDisplayName="hours"
+                            testId={`schedule-availability-remove-${day}-${index}`}
+                            onClick={() => removeRange(day, index)}
+                          />
+                        </Group>
+                        {isOvernightRange(range) && (
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                            mt={4}
+                            data-testid={`schedule-availability-overnight-${day}-${index}`}
+                          >
+                            Ends {formatWallTime(range.end)} on {DAY_LABELS[nextDayOfWeek(day)]}, the next day.
+                          </Text>
+                        )}
+                      </Box>
                     ))}
                     <Box>
                       <ArrayAddButton

@@ -83,6 +83,45 @@ const emptySchedule: Schedule = {
   actor: [{ reference: 'Practitioner/123', display: 'Dr. Alice Smith' }],
 };
 
+// An on-call schedule whose windows run past midnight. Friday's window lands on
+// Saturday, which has no hours of its own, so Saturday shows a note about it.
+const overnightSchedule: Schedule = {
+  resourceType: 'Schedule',
+  id: 'schedule-4',
+  actor: [{ reference: 'Practitioner/123', display: 'Dr. Alice Smith' }],
+  extension: [
+    {
+      url: SchedulingParametersURI,
+      extension: [
+        { url: 'service', valueReference: { reference: 'HealthcareService/service-1' } },
+        { url: 'duration', valueDuration: { value: 30, unit: 'min' } },
+        { url: 'timezone', valueCode: 'America/New_York' },
+        {
+          url: 'availability',
+          extension: [
+            {
+              url: 'availableTime',
+              extension: [
+                { url: 'daysOfWeek', valueCode: 'thu' },
+                { url: 'availableStartTime', valueTime: '22:00:00' },
+                { url: 'availableEndTime', valueTime: '06:00:00' },
+              ],
+            },
+            {
+              url: 'availableTime',
+              extension: [
+                { url: 'daysOfWeek', valueCode: 'fri' },
+                { url: 'availableStartTime', valueTime: '22:00:00' },
+                { url: 'availableEndTime', valueTime: '06:00:00' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 // The editor renders form content only, so the container is the caller's
 // choice. This story puts it in a Drawer, the way the provider app does.
 function EditorStory(props: { schedule: Schedule }): JSX.Element {
@@ -140,6 +179,9 @@ export const CustomHoursOverride = (): JSX.Element => <EditorStory schedule={sch
 
 // Inherits the service default; editing any day creates an override.
 export const InheritingServiceDefault = (): JSX.Element => <EditorStory schedule={inheritingSchedule} />;
+
+// Overnight hours, showing the next-day disclosure and the spillover note.
+export const OvernightHours = (): JSX.Element => <EditorStory schedule={overnightSchedule} />;
 
 // No SchedulingParameters at all; seeds from the service default.
 export const NoAvailability = (): JSX.Element => <EditorStory schedule={emptySchedule} />;
