@@ -6,7 +6,7 @@ import {
   createReference,
   DEFAULT_MAX_SEARCH_COUNT,
   EMPTY,
-  extractReferencesFromCodeableReferenceLike,
+  extractServiceTypeReferences,
   getExtensionValue,
   getReferenceString,
   isDefined,
@@ -614,7 +614,7 @@ export async function validateProposedAppointment(
   ]
 > {
   const { contained, ...appointment } = proposedAppointment;
-  const serviceRefs = extractReferencesFromCodeableReferenceLike(appointment.serviceType);
+  const serviceRefs = extractServiceTypeReferences(appointment.serviceType);
   if (serviceRefs.length === 0) {
     throw new OperationOutcomeError(
       badRequest('Appointment has no service reference', 'Parameters.appointment.serviceType')

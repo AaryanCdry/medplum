@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import { Button } from '@mantine/core';
+import { Button, Drawer } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import { SchedulingParametersURI } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import type { Meta } from '@storybook/react';
@@ -82,20 +83,37 @@ const emptySchedule: Schedule = {
   actor: [{ reference: 'Practitioner/123', display: 'Dr. Alice Smith' }],
 };
 
+// The editor renders form content only, so the container is the caller's
+// choice. This story puts it in a Drawer, the way the provider app does.
 function EditorStory(props: { schedule: Schedule }): JSX.Element {
-  const [opened, setOpened] = useState(true);
+  const [opened, handlers] = useDisclosure(true);
   const [schedule, setSchedule] = useState(props.schedule);
 
   return (
     <Document>
-      <Button onClick={() => setOpened(true)}>Edit weekly hours</Button>
-      <ScheduleAvailabilityEditor
-        schedule={schedule}
-        service={service}
+      <Button onClick={handlers.open}>Edit weekly hours</Button>
+      <Drawer
         opened={opened}
-        onClose={() => setOpened(false)}
-        onSave={(updated) => setSchedule(updated)}
-      />
+        onClose={handlers.close}
+        position="right"
+        size="md"
+        padding={0}
+        title="Weekly availability"
+        styles={{
+          content: { display: 'flex', flexDirection: 'column' },
+          body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 0 },
+        }}
+      >
+        <ScheduleAvailabilityEditor
+          schedule={schedule}
+          service={service}
+          onCancel={handlers.close}
+          onSave={(updated) => {
+            setSchedule(updated);
+            handlers.close();
+          }}
+        />
+      </Drawer>
     </Document>
   );
 }
@@ -125,3 +143,13 @@ export const InheritingServiceDefault = (): JSX.Element => <EditorStory schedule
 
 // No SchedulingParameters at all; seeds from the service default.
 export const NoAvailability = (): JSX.Element => <EditorStory schedule={emptySchedule} />;
+
+// The same editor placed directly on the page instead of in a Drawer.
+export const Inline = (): JSX.Element => {
+  const [schedule, setSchedule] = useState(scheduleWithHours);
+  return (
+    <Document>
+      <ScheduleAvailabilityEditor schedule={schedule} service={service} onSave={setSchedule} />
+    </Document>
+  );
+};

@@ -2,20 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Extension, HealthcareService, Practitioner, Schedule } from '@medplum/fhirtypes';
 import {
-  applyWeeklyAvailability,
+  applyAvailability,
   buildAvailabilityExtension,
   clearAvailabilityOverride,
-  emptyWeeklyAvailability,
-  extractReferencesFromCodeableReferenceLike,
+  extractAvailability,
+  extractServiceTypeReferences,
   getSchedulingTimezone,
   getServiceSchedulingParameters,
   hasAvailabilityOverride,
-  isCodeableReferenceLikeTo,
-  parseServiceAvailability,
-  parseWeeklyAvailability,
   SchedulingParametersURI,
+  serviceTypeIncludesService,
   TimezoneExtensionURI,
-  toCodeableReferenceLike,
+  toServiceTypeCodeableConcepts,
 } from './scheduling';
 
 const service: HealthcareService = {
@@ -63,9 +61,36 @@ function scheduleWith(...availability: Extension[]): Schedule {
   };
 }
 
-describe('weekly scheduling availability', () => {
-  test('parses ranges and all-day availability', () => {
-    const weekly = parseWeeklyAvailability(
+function durationOf(schedule: Schedule): unknown {
+  return getServiceSchedulingParameters(schedule, service)[0]?.extension?.find(
+    (extension) => extension.url === 'duration'
+  )?.valueDuration;
+}
+
+describe('getServiceSchedulingParameters', () => {
+  test('returns every matching extension', () => {
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '12:00:00'));
+    schedule.extension?.push({
+      url: SchedulingParametersURI,
+      extension: [
+        { url: 'service', valueReference: { reference: 'HealthcareService/service-1' } },
+        { url: 'availability', extension: [availableTime('tue', '09:00:00', '12:00:00')] },
+      ],
+    });
+
+    expect(getServiceSchedulingParameters(schedule, service)).toHaveLength(2);
+  });
+
+  test('ignores parameters for other services and services without an id', () => {
+    const schedule = scheduleWith();
+    expect(getServiceSchedulingParameters(schedule, { ...service, id: 'service-2' })).toEqual([]);
+    expect(getServiceSchedulingParameters(schedule, { resourceType: 'HealthcareService' })).toEqual([]);
+  });
+});
+
+describe('extractAvailability', () => {
+  test('extracts ranges and all-day entries from the Schedule override', () => {
+    const availability = extractAvailability(
       scheduleWith(
         availableTime('mon', '09:00:00', '12:00:00'),
         availableTime('mon', '13:00:00', '17:00:00'),
@@ -74,63 +99,92 @@ describe('weekly scheduling availability', () => {
       service
     );
 
-    expect(weekly.mon).toEqual({
-      allDay: false,
-      ranges: [
-        { start: '09:00:00', end: '12:00:00' },
-        { start: '13:00:00', end: '17:00:00' },
-      ],
-    });
-    expect(weekly.sat).toEqual({ allDay: true, ranges: [] });
-    expect(weekly.tue).toEqual({ allDay: false, ranges: [] });
+    expect(availability).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' },
+      { daysOfWeek: ['mon'], availableStartTime: '13:00:00', availableEndTime: '17:00:00' },
+      { daysOfWeek: ['sat'], allDay: true },
+    ]);
   });
 
-  test('parses HealthcareService defaults', () => {
-    const weekly = parseServiceAvailability({
+  test('collects entries across multiple matching parameter extensions', () => {
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '12:00:00'));
+    schedule.extension?.push({
+      url: SchedulingParametersURI,
+      extension: [
+        { url: 'service', valueReference: { reference: 'HealthcareService/service-1' } },
+        { url: 'availability', extension: [allDayTime('sun')] },
+      ],
+    });
+
+    expect(extractAvailability(schedule, service)).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' },
+      { daysOfWeek: ['sun'], allDay: true },
+    ]);
+  });
+
+  test('falls back to the HealthcareService default when there is no override', () => {
+    const serviceWithDefaults: HealthcareService = {
       ...service,
-      availableTime: [
-        { daysOfWeek: ['tue'], availableStartTime: '08:00:00', availableEndTime: '16:00:00' },
-        { daysOfWeek: ['sun'], allDay: true },
-      ],
-    });
+      availableTime: [{ daysOfWeek: ['tue'], availableStartTime: '08:00:00', availableEndTime: '16:00:00' }],
+    };
 
-    expect(weekly.tue.ranges).toEqual([{ start: '08:00:00', end: '16:00:00' }]);
-    expect(weekly.sun.allDay).toBe(true);
+    expect(extractAvailability(clearAvailabilityOverride(scheduleWith(), service), serviceWithDefaults)).toEqual(
+      serviceWithDefaults.availableTime
+    );
+    expect(extractAvailability(undefined, serviceWithDefaults)).toEqual(serviceWithDefaults.availableTime);
   });
 
-  test('builds and round-trips availability', () => {
-    const weekly = emptyWeeklyAvailability();
-    weekly.mon.ranges = [{ start: '09:00:00', end: '17:00:00' }];
-    weekly.sat.allDay = true;
+  test('returns undefined without a service', () => {
+    expect(extractAvailability(scheduleWith(), undefined)).toBeUndefined();
+  });
+});
 
-    const extension = buildAvailabilityExtension(weekly);
+describe('availability overrides', () => {
+  test('builds and round-trips availability', () => {
+    const availability = [
+      { daysOfWeek: ['mon' as const], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
+      { daysOfWeek: ['sat' as const], allDay: true },
+    ];
+
+    const extension = buildAvailabilityExtension(availability);
     expect(extension.url).toBe('availability');
     expect(extension.extension).toHaveLength(2);
 
-    const updated = applyWeeklyAvailability(scheduleWith(), service, weekly);
-    expect(parseWeeklyAvailability(updated, service)).toEqual(weekly);
+    const updated = applyAvailability(scheduleWith(), service, availability);
+    expect(extractAvailability(updated, service)).toEqual(availability);
   });
 
   test('applies and clears an override without mutating input or sibling parameters', () => {
     const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
     const before = structuredClone(schedule);
-    const weekly = emptyWeeklyAvailability();
-    weekly.tue.ranges = [{ start: '10:00:00', end: '14:00:00' }];
 
-    const updated = applyWeeklyAvailability(schedule, service, weekly);
+    const updated = applyAvailability(schedule, service, [
+      { daysOfWeek: ['tue'], availableStartTime: '10:00:00', availableEndTime: '14:00:00' },
+    ]);
     expect(schedule).toEqual(before);
     expect(hasAvailabilityOverride(updated, service)).toBe(true);
-    expect(
-      getServiceSchedulingParameters(updated, service)?.extension?.find((extension) => extension.url === 'duration')
-        ?.valueDuration
-    ).toEqual({ value: 30, unit: 'min' });
+    expect(extractAvailability(updated, service)).toEqual([
+      { daysOfWeek: ['tue'], availableStartTime: '10:00:00', availableEndTime: '14:00:00' },
+    ]);
+    expect(durationOf(updated)).toEqual({ value: 30, unit: 'min' });
 
     const cleared = clearAvailabilityOverride(updated, service);
     expect(hasAvailabilityOverride(cleared, service)).toBe(false);
-    expect(
-      getServiceSchedulingParameters(cleared, service)?.extension?.find((extension) => extension.url === 'duration')
-        ?.valueDuration
-    ).toEqual({ value: 30, unit: 'min' });
+    expect(durationOf(cleared)).toEqual({ value: 30, unit: 'min' });
+  });
+
+  test('does not leave a stale override on a second matching parameter extension', () => {
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
+    schedule.extension?.push({
+      url: SchedulingParametersURI,
+      extension: [
+        { url: 'service', valueReference: { reference: 'HealthcareService/service-1' } },
+        { url: 'availability', extension: [allDayTime('sun')] },
+      ],
+    });
+
+    const updated = applyAvailability(schedule, service, [{ daysOfWeek: ['tue'], allDay: true }]);
+    expect(extractAvailability(updated, service)).toEqual([{ daysOfWeek: ['tue'], allDay: true }]);
   });
 
   test('creates service-specific SchedulingParameters when missing', () => {
@@ -138,12 +192,12 @@ describe('weekly scheduling availability', () => {
       resourceType: 'Schedule',
       actor: [{ reference: 'Practitioner/123' }],
     };
-    const weekly = emptyWeeklyAvailability();
-    weekly.wed.ranges = [{ start: '09:00:00', end: '17:00:00' }];
 
-    const updated = applyWeeklyAvailability(schedule, service, weekly);
-    expect(getServiceSchedulingParameters(updated, service)).toBeDefined();
-    expect(parseWeeklyAvailability(updated, service).wed.ranges).toHaveLength(1);
+    const updated = applyAvailability(schedule, service, [
+      { daysOfWeek: ['wed'], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
+    ]);
+    expect(getServiceSchedulingParameters(updated, service)).toHaveLength(1);
+    expect(extractAvailability(updated, service)).toHaveLength(1);
   });
 });
 
@@ -172,7 +226,7 @@ describe('getSchedulingTimezone', () => {
 
   test('prefers Schedule scheduling parameters over service and actor', () => {
     const schedule = scheduleWith();
-    getServiceSchedulingParameters(schedule, service)?.extension?.push({
+    getServiceSchedulingParameters(schedule, service)[0].extension?.push({
       url: 'timezone',
       valueCode: 'America/New_York',
     });
@@ -180,13 +234,13 @@ describe('getSchedulingTimezone', () => {
   });
 });
 
-describe('CodeableReference-like service types', () => {
+describe('serviceType CodeableConcepts', () => {
   test('converts, matches, and extracts HealthcareService references', () => {
     const serviceWithId = { ...service, id: 'service-1' };
-    const serviceType = toCodeableReferenceLike(serviceWithId);
+    const serviceType = toServiceTypeCodeableConcepts(serviceWithId);
 
-    expect(isCodeableReferenceLikeTo(serviceType, serviceWithId)).toBe(true);
-    expect(extractReferencesFromCodeableReferenceLike(serviceType)).toEqual([
+    expect(serviceTypeIncludesService(serviceType, serviceWithId)).toBe(true);
+    expect(extractServiceTypeReferences(serviceType)).toEqual([
       expect.objectContaining({ reference: 'HealthcareService/service-1' }),
     ]);
   });
@@ -197,9 +251,15 @@ describe('CodeableReference-like service types', () => {
       id: 'service-1',
       type: [{ coding: [{ system: 'http://example.com/service', code: 'office' }] }],
     };
-    const serviceType = toCodeableReferenceLike(serviceWithType);
+    const serviceType = toServiceTypeCodeableConcepts(serviceWithType);
 
     expect(serviceType[0].coding?.[0].code).toBe('office');
-    expect(isCodeableReferenceLikeTo(serviceType, serviceWithType)).toBe(true);
+    expect(serviceTypeIncludesService(serviceType, serviceWithType)).toBe(true);
+  });
+
+  test('does not match an unrelated service', () => {
+    const serviceType = toServiceTypeCodeableConcepts({ ...service, id: 'service-1' });
+    expect(serviceTypeIncludesService(serviceType, { ...service, id: 'service-2' })).toBe(false);
+    expect(serviceTypeIncludesService(undefined, { ...service, id: 'service-1' })).toBe(false);
   });
 });

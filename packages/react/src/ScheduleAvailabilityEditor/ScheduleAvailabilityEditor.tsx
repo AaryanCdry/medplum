@@ -6,7 +6,6 @@ import {
   Button,
   Checkbox,
   Divider,
-  Drawer,
   Group,
   Paper,
   ScrollArea,
@@ -15,24 +14,29 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import type { DayOfWeek, TimeRange, WeeklyAvailability } from '@medplum/core';
+import type { DayOfWeek } from '@medplum/core';
 import {
-  applyWeeklyAvailability,
+  applyAvailability,
   clearAvailabilityOverride,
   DAYS_OF_WEEK,
-  emptyWeeklyAvailability,
+  extractAvailability,
   getSchedulingTimezone,
   hasAvailabilityOverride,
-  parseServiceAvailability,
-  parseWeeklyAvailability,
 } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import { useResource } from '@medplum/react-hooks';
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { ArrayAddButton } from '../buttons/ArrayAddButton';
 import { ArrayRemoveButton } from '../buttons/ArrayRemoveButton';
-import { DAY_LABELS, hasAnyAvailableDay, validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import type { TimeRange, WeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import {
+  DAY_LABELS,
+  fromWeeklyAvailability,
+  hasAnyAvailableDay,
+  toWeeklyAvailability,
+  validateWeeklyAvailability,
+} from './ScheduleAvailabilityEditor.utils';
 
 const DEFAULT_RANGE: TimeRange = { start: '09:00:00', end: '17:00:00' };
 
@@ -58,33 +62,38 @@ type DraftAvailability = Record<DayOfWeek, DayDraft>;
 
 export interface ScheduleAvailabilityEditorProps {
   readonly schedule: Schedule;
-  /**
-   * The service whose availability is being edited. May be `undefined` while the
-   * drawer is closed. Keep the component mounted and toggle `opened` (rather than
-   * conditionally rendering it) so the open/close animations play; Mantine only
-   * animates a transition that is already mounted when `opened` changes.
-   */
-  readonly service: HealthcareService | undefined;
-  readonly opened: boolean;
-  readonly onClose: () => void;
+  /** The service whose availability is being edited. */
+  readonly service: HealthcareService;
   readonly onSave: (updatedSchedule: Schedule) => void | Promise<void>;
-  /** Called after the close transition finishes, e.g. to clear the selected service. */
-  readonly onExitTransitionEnd?: () => void;
+  readonly onCancel?: () => void;
 }
 
-function toDraft(weekly: WeeklyAvailability, nextId: { current: number }): DraftAvailability {
+function toDraft(weekly: WeeklyAvailability): DraftAvailability {
   const draft = {} as DraftAvailability;
+  let id = 0;
   for (const day of DAYS_OF_WEEK) {
     draft[day] = {
       allDay: weekly[day].allDay,
-      ranges: weekly[day].ranges.map((range) => ({ ...range, id: nextId.current++ })),
+      ranges: weekly[day].ranges.map((range) => ({ ...range, id: id++ })),
     };
   }
   return draft;
 }
 
+// Row keys only have to be unique among the rows currently rendered, so deriving
+// the next one from the draft avoids threading a mutable counter through render.
+function nextRangeId(draft: DraftAvailability): number {
+  let max = -1;
+  for (const day of DAYS_OF_WEEK) {
+    for (const range of draft[day].ranges) {
+      max = Math.max(max, range.id);
+    }
+  }
+  return max + 1;
+}
+
 function toWeekly(draft: DraftAvailability): WeeklyAvailability {
-  const weekly = emptyWeeklyAvailability();
+  const weekly = {} as WeeklyAvailability;
   for (const day of DAYS_OF_WEEK) {
     weekly[day] = {
       allDay: draft[day].allDay,
@@ -94,35 +103,33 @@ function toWeekly(draft: DraftAvailability): WeeklyAvailability {
   return weekly;
 }
 
+/**
+ * Edits the weekly availability a Schedule uses for one HealthcareService.
+ *
+ * This renders form content only. The caller supplies the container, so the
+ * editor can live inline in a page, in a Drawer, or in a Modal. When the
+ * container has a constrained height, the day list scrolls and the action bar
+ * stays pinned to the bottom.
+ * @param props - Schedule, service, and save/cancel handlers
+ * @returns The availability editor form
+ */
 export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProps): JSX.Element {
-  const { schedule, service, opened, onClose, onSave, onExitTransitionEnd } = props;
-  const nextId = useRef(0);
-  const [draft, setDraft] = useState<DraftAvailability>(() => emptyDraft());
+  const { schedule, service, onSave, onCancel } = props;
+  // Seed from the Schedule override when it has one, otherwise from the
+  // service-level default, so the editor opens showing the hours currently in
+  // effect rather than a blank week.
+  const [overriding, setOverriding] = useState(() => hasAvailabilityOverride(schedule, service));
+  const [draft, setDraft] = useState<DraftAvailability>(() =>
+    toDraft(toWeeklyAvailability(extractAvailability(schedule, service)))
+  );
   const [saving, setSaving] = useState(false);
-  // Whether the draft will be saved as a Schedule-level override. When false,
-  // the draft mirrors the inherited service default and saving clears any override.
-  const [overriding, setOverriding] = useState(false);
-
-  // Reset the draft from the current Schedule whenever the drawer is (re)opened
-  // or the target service changes. If the Schedule has no override for this
-  // service, seed from the service-level default so the editor shows the hours
-  // currently in effect rather than a blank week.
-  useEffect(() => {
-    if (opened && service) {
-      nextId.current = 0;
-      const override = hasAvailabilityOverride(schedule, service);
-      const weekly = override ? parseWeeklyAvailability(schedule, service) : parseServiceAvailability(service);
-      setOverriding(override);
-      setDraft(toDraft(weekly, nextId));
-    }
-  }, [opened, schedule, service]);
 
   // Scheduling falls back to the actor's timezone extension when neither the
   // Schedule nor the service parameters specify one, which is the most common
   // setup, so the actor has to be loaded to resolve the timezone the same way
   // the server does. Scheduling requires exactly one actor per Schedule.
   const actor = useResource(schedule.actor[0]);
-  const timezone = service ? getSchedulingTimezone(schedule, service, actor) : undefined;
+  const timezone = getSchedulingTimezone(schedule, service, actor);
   const weekly = toWeekly(draft);
   const validation = validateWeeklyAvailability(weekly);
   // An override with zero available days serializes to `{ url: 'availability',
@@ -140,17 +147,13 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
 
   // Discard the override and restore the inherited service-default hours.
   function resetToServiceDefault(): void {
-    if (!service) {
-      return;
-    }
-    nextId.current = 0;
-    setDraft(toDraft(parseServiceAvailability(service), nextId));
+    setDraft(toDraft(toWeeklyAvailability(service.availableTime)));
     setOverriding(false);
   }
 
   function toggleDay(day: DayOfWeek, available: boolean): void {
     if (available) {
-      setDay(day, { allDay: false, ranges: [{ ...DEFAULT_RANGE, id: nextId.current++ }] });
+      setDay(day, { allDay: false, ranges: [{ ...DEFAULT_RANGE, id: nextRangeId(draft) }] });
     } else {
       setDay(day, { allDay: false, ranges: [] });
     }
@@ -160,12 +163,12 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
     if (allDay) {
       setDay(day, { allDay: true, ranges: [] });
     } else {
-      setDay(day, { allDay: false, ranges: [{ ...DEFAULT_RANGE, id: nextId.current++ }] });
+      setDay(day, { allDay: false, ranges: [{ ...DEFAULT_RANGE, id: nextRangeId(draft) }] });
     }
   }
 
   function addRange(day: DayOfWeek): void {
-    setDay(day, { ...draft[day], ranges: [...draft[day].ranges, { ...DEFAULT_RANGE, id: nextId.current++ }] });
+    setDay(day, { ...draft[day], ranges: [...draft[day].ranges, { ...DEFAULT_RANGE, id: nextRangeId(draft) }] });
   }
 
   function removeRange(day: DayOfWeek, index: number): void {
@@ -180,53 +183,22 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   }
 
   async function handleSave(): Promise<void> {
-    if (!canSave || !service) {
+    if (!canSave) {
       return;
     }
     setSaving(true);
     try {
       const updated = overriding
-        ? applyWeeklyAvailability(schedule, service, weekly)
+        ? applyAvailability(schedule, service, fromWeeklyAvailability(weekly))
         : clearAvailabilityOverride(schedule, service);
       await onSave(updated);
-      onClose();
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Drawer
-      opened={opened}
-      onClose={onClose}
-      onExitTransitionEnd={onExitTransitionEnd}
-      position="right"
-      size="md"
-      padding={0}
-      overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}
-      transitionProps={{ transition: 'slide-left', duration: 250, timingFunction: 'ease' }}
-      title={
-        <Box>
-          <Text fw={600} size="lg">
-            Weekly availability
-          </Text>
-          {service?.name && (
-            <Text size="sm" c="dimmed">
-              {service.name}
-            </Text>
-          )}
-        </Box>
-      }
-      styles={{
-        content: { display: 'flex', flexDirection: 'column' },
-        header: {
-          paddingInline: 'var(--mantine-spacing-lg)',
-          paddingBlock: 'var(--mantine-spacing-md)',
-          borderBottom: '1px solid var(--mantine-color-default-border)',
-        },
-        body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 0 },
-      }}
-    >
+    <Box style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <ScrollArea style={{ flex: 1 }} px="lg" py="md">
         <Stack gap="sm">
           <Group justify="space-between" wrap="nowrap" align="center">
@@ -336,6 +308,11 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
                         {validation.errors[day]}
                       </Text>
                     )}
+                    {validation.warnings[day] && (
+                      <Text size="xs" c="orange" data-testid={`schedule-availability-warning-${day}`}>
+                        {validation.warnings[day]}
+                      </Text>
+                    )}
                   </Stack>
                 )}
               </Paper>
@@ -351,22 +328,16 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
           </Text>
         )}
         <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>
-            Cancel
-          </Button>
+          {onCancel && (
+            <Button variant="default" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
           <Button onClick={handleSave} loading={saving} disabled={!canSave}>
             Save
           </Button>
         </Group>
       </Box>
-    </Drawer>
+    </Box>
   );
-}
-
-function emptyDraft(): DraftAvailability {
-  const draft = {} as DraftAvailability;
-  for (const day of DAYS_OF_WEEK) {
-    draft[day] = { allDay: false, ranges: [] };
-  }
-  return draft;
 }

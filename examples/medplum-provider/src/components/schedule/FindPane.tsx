@@ -4,7 +4,7 @@ import { Button, Group, Stack, Text, Title } from '@mantine/core';
 import type { WithId } from '@medplum/core';
 import {
   EMPTY,
-  extractReferencesFromCodeableReferenceLike,
+  extractServiceTypeReferences,
   formatDateTime,
   getReferenceString,
   hasSchedulingParameters,
@@ -62,7 +62,7 @@ export function FindPane(props: FindPaneProps): JSX.Element | null {
 
   useEffect(() => {
     const seen = new Set<string>();
-    const allRefs = extractReferencesFromCodeableReferenceLike(schedule.serviceType);
+    const allRefs = extractServiceTypeReferences(schedule.serviceType);
     const refs = allRefs.filter((ref) => {
       if (!ref.reference) {
         return false;

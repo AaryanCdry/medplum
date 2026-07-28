@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import { Alert, Badge, Button, Group, Loader, Stack, Switch, Text, Title, Tooltip } from '@mantine/core';
+import { Alert, Badge, Box, Button, Drawer, Group, Loader, Stack, Switch, Text, Title, Tooltip } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import type { WithId } from '@medplum/core';
 import {
   deepClone,
@@ -10,9 +11,9 @@ import {
   getReferenceString,
   hasAvailabilityOverride,
   hasSchedulingParameters,
-  isCodeableReferenceLikeTo,
+  serviceTypeIncludesService,
   ServiceTypeReferenceURI,
-  toCodeableReferenceLike,
+  toServiceTypeCodeableConcepts,
 } from '@medplum/core';
 import type { HealthcareService, Reference, Schedule } from '@medplum/fhirtypes';
 import { Document, MedplumLink, OperationOutcomeAlert, ScheduleAvailabilityEditor, useMedplum } from '@medplum/react';
@@ -21,8 +22,8 @@ import { IconAlertCircle } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { Fragment, useState } from 'react';
 import { useParams } from 'react-router';
-import { AlphaBanner } from '../../components/AlphaBanner';
 import { DocsLink } from '../../components/DocsLink';
+import { ReleaseStageBanner } from '../../components/ReleaseStageBanner';
 import { showErrorNotification, showSuccessNotification } from '../../utils/notifications';
 
 // Eventually we should paginate the HealthcareService search so this is not a
@@ -38,11 +39,12 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  // The editor drawer stays mounted so Mantine can animate open/close; only
-  // `editorOpened` toggles. `editingService` selects which service it edits and
-  // is cleared after the close animation via `onExitTransitionEnd`.
+  // The Drawer stays mounted so Mantine can animate open/close; only
+  // `editorOpened` toggles. `editingService` selects which service the editor
+  // edits and is only cleared after the close animation via
+  // `onExitTransitionEnd`, so the contents stay put while the drawer slides out.
   const [editingService, setEditingService] = useState<WithId<HealthcareService>>();
-  const [editorOpened, setEditorOpened] = useState(false);
+  const [editorOpened, editorHandlers] = useDisclosure(false);
 
   // Store a copy of the Schedule that we can mutate while the viewer manipulates
   // the UI
@@ -51,7 +53,7 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
   function toggleServiceType(service: WithId<HealthcareService>, enabled: boolean): void {
     setDirty(true);
     if (enabled) {
-      const serviceType = toCodeableReferenceLike(service);
+      const serviceType = toServiceTypeCodeableConcepts(service);
       setSchedule((prevValue) => ({
         ...prevValue,
         serviceType: [...(prevValue.serviceType ?? EMPTY), ...serviceType],
@@ -117,7 +119,7 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
       <Stack gap="sm">
         {services?.map((service) => {
           const schedulable = hasSchedulingParameters(service);
-          const enabled = isCodeableReferenceLikeTo(schedule.serviceType, service);
+          const enabled = serviceTypeIncludesService(schedule.serviceType, service);
           const overriding = enabled && hasAvailabilityOverride(schedule, service);
           return (
             <Group key={service.id} justify="space-between">
@@ -155,7 +157,7 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
                     size="compact-sm"
                     onClick={() => {
                       setEditingService(service);
-                      setEditorOpened(true);
+                      editorHandlers.open();
                     }}
                   >
                     Edit weekly hours
@@ -166,17 +168,51 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
           );
         })}
       </Stack>
-      <ScheduleAvailabilityEditor
-        schedule={schedule}
-        service={editingService}
+      <Drawer
         opened={editorOpened}
-        onClose={() => setEditorOpened(false)}
+        onClose={editorHandlers.close}
         onExitTransitionEnd={() => setEditingService(undefined)}
-        onSave={(updated) => {
-          setSchedule(updated);
-          setDirty(true);
+        position="right"
+        size="md"
+        padding={0}
+        overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}
+        transitionProps={{ transition: 'slide-left', duration: 250, timingFunction: 'ease' }}
+        title={
+          <Box>
+            <Text fw={600} size="lg">
+              Weekly availability
+            </Text>
+            {editingService?.name && (
+              <Text size="sm" c="dimmed">
+                {editingService.name}
+              </Text>
+            )}
+          </Box>
+        }
+        styles={{
+          content: { display: 'flex', flexDirection: 'column' },
+          header: {
+            paddingInline: 'var(--mantine-spacing-lg)',
+            paddingBlock: 'var(--mantine-spacing-md)',
+            borderBottom: '1px solid var(--mantine-color-default-border)',
+          },
+          body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 0 },
         }}
-      />
+      >
+        {editingService && (
+          <ScheduleAvailabilityEditor
+            key={editingService.id}
+            schedule={schedule}
+            service={editingService}
+            onCancel={editorHandlers.close}
+            onSave={(updated) => {
+              setSchedule(updated);
+              setDirty(true);
+              editorHandlers.close();
+            }}
+          />
+        )}
+      </Drawer>
       <Group justify="flex-end">
         <Button variant="outline" disabled={saving} component={MedplumLink} to={`/Calendar/Schedule/${schedule.id}`}>
           {dirty ? 'Cancel' : 'Back'}
@@ -204,9 +240,9 @@ export function ScheduleSettingsPage(): JSX.Element {
           </Fragment>
         ))}
       </Title>
-      <AlphaBanner bdrs="md" mb="lg">
-        Medplum Scheduling is in an Alpha period and is subject to change.
-      </AlphaBanner>
+      <ReleaseStageBanner stage="beta" bdrs="md" mb="lg">
+        Medplum Scheduling is in a Beta period and is subject to change.
+      </ReleaseStageBanner>
       {schedule ? <ScheduleSettings schedule={schedule} key={schedule.id} /> : <Loader />}
     </Document>
   );

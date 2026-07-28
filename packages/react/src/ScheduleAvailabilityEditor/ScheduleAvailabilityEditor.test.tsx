@@ -1,15 +1,9 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import {
-  applyWeeklyAvailability,
-  buildAvailabilityExtension,
-  clearAvailabilityOverride,
   createReference,
-  emptyWeeklyAvailability,
-  getServiceSchedulingParameters,
+  extractAvailability,
   hasAvailabilityOverride,
-  parseServiceAvailability,
-  parseWeeklyAvailability,
   SchedulingParametersURI,
   TimezoneExtensionURI,
 } from '@medplum/core';
@@ -18,7 +12,13 @@ import { MockClient } from '@medplum/mock';
 import { MedplumProvider } from '@medplum/react-hooks';
 import { act, fireEvent, render, screen } from '../test-utils/render';
 import { ScheduleAvailabilityEditor } from './ScheduleAvailabilityEditor';
-import { hasAnyAvailableDay, validateWeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import {
+  blankWeeklyAvailability,
+  fromWeeklyAvailability,
+  hasAnyAvailableDay,
+  toWeeklyAvailability,
+  validateWeeklyAvailability,
+} from './ScheduleAvailabilityEditor.utils';
 
 const service: HealthcareService = {
   resourceType: 'HealthcareService',
@@ -44,16 +44,6 @@ function availableTime(day: string, start: string, end: string): Extension {
       { url: 'daysOfWeek', valueCode: day },
       { url: 'availableStartTime', valueTime: start },
       { url: 'availableEndTime', valueTime: end },
-    ],
-  };
-}
-
-function allDayTime(day: string): Extension {
-  return {
-    url: 'availableTime',
-    extension: [
-      { url: 'daysOfWeek', valueCode: day },
-      { url: 'allDay', valueBoolean: true },
     ],
   };
 }
@@ -95,212 +85,95 @@ function scheduleWithoutOverride(): Schedule {
   };
 }
 
-function getAvailableTimes(schedule: Schedule): Extension[] {
-  const params = getServiceSchedulingParameters(schedule, service);
-  const availability = params?.extension?.find((sub) => sub.url === 'availability');
-  return availability?.extension ?? [];
-}
-
 describe('ScheduleAvailabilityEditor utils', () => {
-  test('parseWeeklyAvailability expands availableTime into per-day ranges', () => {
-    const schedule = scheduleWith(
-      availableTime('mon', '09:00:00', '12:00:00'),
-      availableTime('wed', '09:00:00', '17:00:00')
-    );
-    const weekly = parseWeeklyAvailability(schedule, service);
-    expect(weekly.mon).toEqual({ allDay: false, ranges: [{ start: '09:00:00', end: '12:00:00' }] });
-    expect(weekly.wed).toEqual({ allDay: false, ranges: [{ start: '09:00:00', end: '17:00:00' }] });
-    expect(weekly.tue).toEqual({ allDay: false, ranges: [] });
-  });
+  test('toWeeklyAvailability pivots entries into per-day ranges', () => {
+    const weekly = toWeeklyAvailability([
+      { daysOfWeek: ['mon', 'wed'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' },
+      { daysOfWeek: ['mon'], availableStartTime: '13:00:00', availableEndTime: '17:00:00' },
+      { daysOfWeek: ['sat'], allDay: true },
+    ]);
 
-  test('parseWeeklyAvailability supports multiple ranges per day', () => {
-    const schedule = scheduleWith(
-      availableTime('mon', '09:00:00', '12:00:00'),
-      availableTime('mon', '13:00:00', '17:00:00')
-    );
-    const weekly = parseWeeklyAvailability(schedule, service);
     expect(weekly.mon.ranges).toEqual([
       { start: '09:00:00', end: '12:00:00' },
       { start: '13:00:00', end: '17:00:00' },
     ]);
+    expect(weekly.wed).toEqual({ allDay: false, ranges: [{ start: '09:00:00', end: '12:00:00' }] });
+    expect(weekly.sat).toEqual({ allDay: true, ranges: [] });
+    expect(weekly.tue).toEqual({ allDay: false, ranges: [] });
   });
 
-  test('parseWeeklyAvailability reads the allDay flag', () => {
-    const schedule = scheduleWith(allDayTime('mon'), availableTime('wed', '09:00:00', '17:00:00'));
-    const weekly = parseWeeklyAvailability(schedule, service);
-    expect(weekly.mon).toEqual({ allDay: true, ranges: [] });
-    expect(weekly.wed).toEqual({ allDay: false, ranges: [{ start: '09:00:00', end: '17:00:00' }] });
+  test('toWeeklyAvailability skips entries missing a start or end time', () => {
+    expect(toWeeklyAvailability([{ daysOfWeek: ['mon'], availableStartTime: '09:00:00' }])).toEqual(
+      blankWeeklyAvailability()
+    );
+    expect(toWeeklyAvailability(undefined)).toEqual(blankWeeklyAvailability());
   });
 
-  test('parseWeeklyAvailability returns empty availability when no matching service', () => {
-    const otherService: HealthcareService = { resourceType: 'HealthcareService', id: 'other', name: 'Other' };
-    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
-    expect(parseWeeklyAvailability(schedule, otherService)).toEqual(emptyWeeklyAvailability());
-  });
-
-  test('buildAvailabilityExtension serializes one availableTime per range', () => {
-    const weekly = emptyWeeklyAvailability();
+  test('fromWeeklyAvailability emits one entry per range and round-trips', () => {
+    const weekly = blankWeeklyAvailability();
     weekly.mon.ranges = [
       { start: '09:00:00', end: '12:00:00' },
       { start: '13:00:00', end: '17:00:00' },
     ];
-    const ext = buildAvailabilityExtension(weekly);
-    expect(ext.url).toBe('availability');
-    expect(ext.extension).toHaveLength(2);
-    expect(ext.extension?.[0].extension).toEqual([
-      { url: 'daysOfWeek', valueCode: 'mon' },
-      { url: 'availableStartTime', valueTime: '09:00:00' },
-      { url: 'availableEndTime', valueTime: '12:00:00' },
-    ]);
-    expect(ext.extension?.[1].extension).toEqual([
-      { url: 'daysOfWeek', valueCode: 'mon' },
-      { url: 'availableStartTime', valueTime: '13:00:00' },
-      { url: 'availableEndTime', valueTime: '17:00:00' },
-    ]);
-  });
-
-  test('buildAvailabilityExtension serializes an allDay day with the allDay flag', () => {
-    const weekly = emptyWeeklyAvailability();
-    weekly.mon.allDay = true;
+    weekly.sat.allDay = true;
     // Ranges are ignored when allDay is set.
-    weekly.mon.ranges = [{ start: '09:00:00', end: '12:00:00' }];
-    const ext = buildAvailabilityExtension(weekly);
-    expect(ext.extension).toHaveLength(1);
-    expect(ext.extension?.[0].extension).toEqual([
-      { url: 'daysOfWeek', valueCode: 'mon' },
-      { url: 'allDay', valueBoolean: true },
+    weekly.sat.ranges = [{ start: '09:00:00', end: '12:00:00' }];
+
+    expect(fromWeeklyAvailability(weekly)).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' },
+      { daysOfWeek: ['mon'], availableStartTime: '13:00:00', availableEndTime: '17:00:00' },
+      { daysOfWeek: ['sat'], allDay: true },
     ]);
+    expect(toWeeklyAvailability(fromWeeklyAvailability(weekly))).toEqual({
+      ...weekly,
+      sat: { allDay: true, ranges: [] },
+    });
   });
 
-  test('allDay round-trips through parse -> build -> parse', () => {
-    const schedule = scheduleWith(allDayTime('sat'));
-    const weekly = parseWeeklyAvailability(schedule, service);
-    const updated = applyWeeklyAvailability(schedule, service, weekly);
-    expect(parseWeeklyAvailability(updated, service)).toEqual(weekly);
-  });
+  test('validateWeeklyAvailability rejects a missing or backwards range', () => {
+    const backwards = blankWeeklyAvailability();
+    backwards.mon.ranges = [{ start: '17:00:00', end: '09:00:00' }];
+    expect(validateWeeklyAvailability(backwards).valid).toBe(false);
+    expect(validateWeeklyAvailability(backwards).errors.mon).toBe('End time must be after start time');
 
-  test('parse -> build -> parse round-trips', () => {
-    const schedule = scheduleWith(
-      availableTime('mon', '09:00:00', '12:00:00'),
-      availableTime('mon', '13:00:00', '17:00:00'),
-      availableTime('fri', '08:00:00', '16:00:00')
-    );
-    const weekly = parseWeeklyAvailability(schedule, service);
-    const updated = applyWeeklyAvailability(schedule, service, weekly);
-    expect(parseWeeklyAvailability(updated, service)).toEqual(weekly);
-  });
+    const missing = blankWeeklyAvailability();
+    missing.mon.ranges = [{ start: '', end: '09:00:00' }];
+    expect(validateWeeklyAvailability(missing).errors.mon).toBe('Start and end times are required');
 
-  test('applyWeeklyAvailability preserves sibling fields (service/duration)', () => {
-    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
-    const weekly = emptyWeeklyAvailability();
-    weekly.tue.ranges = [{ start: '10:00:00', end: '14:00:00' }];
-    const updated = applyWeeklyAvailability(schedule, service, weekly);
-
-    const params = getServiceSchedulingParameters(updated, service);
-    expect(params?.extension?.find((e) => e.url === 'service')?.valueReference?.reference).toBe(
-      'HealthcareService/service-1'
-    );
-    expect(params?.extension?.find((e) => e.url === 'duration')?.valueDuration).toEqual({ value: 30, unit: 'min' });
-
-    const times = getAvailableTimes(updated);
-    expect(times).toHaveLength(1);
-    expect(times[0].extension).toContainEqual({ url: 'daysOfWeek', valueCode: 'tue' });
-  });
-
-  test('applyWeeklyAvailability does not mutate the input schedule', () => {
-    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
-    const before = JSON.stringify(schedule);
-    const weekly = emptyWeeklyAvailability();
-    weekly.tue.ranges = [{ start: '10:00:00', end: '14:00:00' }];
-    applyWeeklyAvailability(schedule, service, weekly);
-    expect(JSON.stringify(schedule)).toBe(before);
-  });
-
-  test('applyWeeklyAvailability creates a SchedulingParameters entry when missing', () => {
-    const schedule: Schedule = {
-      resourceType: 'Schedule',
-      id: 'schedule-empty',
-      actor: [{ reference: 'Practitioner/123' }],
-    };
-    const weekly = emptyWeeklyAvailability();
-    weekly.mon.ranges = [{ start: '09:00:00', end: '17:00:00' }];
-    const updated = applyWeeklyAvailability(schedule, service, weekly);
-
-    const params = getServiceSchedulingParameters(updated, service);
-    expect(params).toBeDefined();
-    expect(params?.extension?.find((e) => e.url === 'service')?.valueReference?.reference).toBe(
-      'HealthcareService/service-1'
-    );
-    expect(getAvailableTimes(updated)).toHaveLength(1);
-  });
-
-  test('validateWeeklyAvailability flags end <= start and overlaps', () => {
-    const weekly = emptyWeeklyAvailability();
-    weekly.mon.ranges = [{ start: '17:00:00', end: '09:00:00' }];
-    expect(validateWeeklyAvailability(weekly).valid).toBe(false);
-
-    const overlap = emptyWeeklyAvailability();
-    overlap.tue.ranges = [
-      { start: '09:00:00', end: '13:00:00' },
-      { start: '12:00:00', end: '15:00:00' },
-    ];
-    expect(validateWeeklyAvailability(overlap).valid).toBe(false);
-
-    const ok = emptyWeeklyAvailability();
+    const ok = blankWeeklyAvailability();
     ok.wed.ranges = [{ start: '09:00:00', end: '17:00:00' }];
     expect(validateWeeklyAvailability(ok).valid).toBe(true);
   });
 
+  test('validateWeeklyAvailability warns about overlaps without invalidating them', () => {
+    const overlap = blankWeeklyAvailability();
+    overlap.tue.ranges = [
+      { start: '09:00:00', end: '13:00:00' },
+      { start: '12:00:00', end: '15:00:00' },
+    ];
+
+    const validation = validateWeeklyAvailability(overlap);
+    expect(validation.valid).toBe(true);
+    expect(validation.errors.tue).toBeUndefined();
+    expect(validation.warnings.tue).toBe('Time ranges overlap');
+  });
+
   test('validateWeeklyAvailability treats allDay days as valid', () => {
-    const weekly = emptyWeeklyAvailability();
+    const weekly = blankWeeklyAvailability();
     weekly.mon.allDay = true;
     expect(validateWeeklyAvailability(weekly).valid).toBe(true);
   });
 
   test('hasAnyAvailableDay is false only when every day is unavailable', () => {
-    expect(hasAnyAvailableDay(emptyWeeklyAvailability())).toBe(false);
+    expect(hasAnyAvailableDay(blankWeeklyAvailability())).toBe(false);
 
-    const withRange = emptyWeeklyAvailability();
+    const withRange = blankWeeklyAvailability();
     withRange.fri.ranges = [{ start: '09:00:00', end: '17:00:00' }];
     expect(hasAnyAvailableDay(withRange)).toBe(true);
 
-    const withAllDay = emptyWeeklyAvailability();
+    const withAllDay = blankWeeklyAvailability();
     withAllDay.sun.allDay = true;
     expect(hasAnyAvailableDay(withAllDay)).toBe(true);
-  });
-
-  test('parseServiceAvailability expands HealthcareService.availableTime', () => {
-    const weekly = parseServiceAvailability(serviceWithHours);
-    expect(weekly.mon).toEqual({ allDay: false, ranges: [{ start: '08:00:00', end: '16:00:00' }] });
-    expect(weekly.tue).toEqual({ allDay: false, ranges: [{ start: '08:00:00', end: '16:00:00' }] });
-    expect(weekly.sat).toEqual({ allDay: true, ranges: [] });
-    expect(weekly.wed).toEqual({ allDay: false, ranges: [] });
-  });
-
-  test('hasAvailabilityOverride reflects presence of the availability sub-extension', () => {
-    expect(hasAvailabilityOverride(scheduleWith(availableTime('mon', '09:00:00', '17:00:00')), service)).toBe(true);
-    expect(hasAvailabilityOverride(scheduleWithoutOverride(), service)).toBe(false);
-    const empty: Schedule = { resourceType: 'Schedule', id: 's', actor: [{ reference: 'Practitioner/1' }] };
-    expect(hasAvailabilityOverride(empty, service)).toBe(false);
-  });
-
-  test('clearAvailabilityOverride removes the availability sub-extension but keeps siblings', () => {
-    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
-    const updated = clearAvailabilityOverride(schedule, service);
-
-    expect(hasAvailabilityOverride(updated, service)).toBe(false);
-    const params = getServiceSchedulingParameters(updated, service);
-    expect(params?.extension?.find((e) => e.url === 'service')?.valueReference?.reference).toBe(
-      'HealthcareService/service-1'
-    );
-    expect(params?.extension?.find((e) => e.url === 'duration')?.valueDuration).toEqual({ value: 30, unit: 'min' });
-  });
-
-  test('clearAvailabilityOverride does not mutate the input schedule', () => {
-    const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
-    const before = JSON.stringify(schedule);
-    clearAvailabilityOverride(schedule, service);
-    expect(JSON.stringify(schedule)).toBe(before);
   });
 });
 
@@ -308,15 +181,15 @@ describe('ScheduleAvailabilityEditor component', () => {
   function setup(
     schedule: Schedule,
     onSave = vi.fn(),
-    onClose = vi.fn(),
+    onCancel = vi.fn(),
     svc: HealthcareService = service
-  ): { onSave: any; onClose: any } {
+  ): { onSave: any; onCancel: any } {
     render(
       <MedplumProvider medplum={new MockClient()}>
-        <ScheduleAvailabilityEditor schedule={schedule} service={svc} opened={true} onClose={onClose} onSave={onSave} />
+        <ScheduleAvailabilityEditor schedule={schedule} service={svc} onCancel={onCancel} onSave={onSave} />
       </MedplumProvider>
     );
-    return { onSave, onClose };
+    return { onSave, onCancel };
   }
 
   test('renders existing availability and saves an updated Schedule', async () => {
@@ -331,9 +204,9 @@ describe('ScheduleAvailabilityEditor component', () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
     const updated: Schedule = onSave.mock.calls[0][0];
-    const times = getAvailableTimes(updated);
-    expect(times).toHaveLength(1);
-    expect(times[0].extension).toContainEqual({ url: 'daysOfWeek', valueCode: 'mon' });
+    expect(extractAvailability(updated, service)).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
+    ]);
   });
 
   test('toggling a day on adds a default range and saves it', async () => {
@@ -350,8 +223,9 @@ describe('ScheduleAvailabilityEditor component', () => {
     });
 
     const updated: Schedule = onSave.mock.calls[0][0];
-    const weekly = parseWeeklyAvailability(updated, service);
-    expect(weekly.tue.ranges).toHaveLength(1);
+    expect(extractAvailability(updated, service)).toEqual([
+      { daysOfWeek: ['tue'], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
+    ]);
   });
 
   test('supports adding and removing multiple ranges per day', async () => {
@@ -372,10 +246,9 @@ describe('ScheduleAvailabilityEditor component', () => {
     });
 
     const updated: Schedule = onSave.mock.calls[0][0];
-    const weekly = parseWeeklyAvailability(updated, service);
-    expect(weekly.mon.ranges).toEqual([
-      { start: '09:00:00', end: '12:00:00' },
-      { start: '13:00:00', end: '17:00:00' },
+    expect(extractAvailability(updated, service)).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' },
+      { daysOfWeek: ['mon'], availableStartTime: '13:00:00', availableEndTime: '17:00:00' },
     ]);
   });
 
@@ -393,19 +266,31 @@ describe('ScheduleAvailabilityEditor component', () => {
     });
 
     const updated: Schedule = onSave.mock.calls[0][0];
-    const weekly = parseWeeklyAvailability(updated, service);
-    expect(weekly.mon).toEqual({ allDay: true, ranges: [] });
+    expect(extractAvailability(updated, service)).toEqual([{ daysOfWeek: ['mon'], allDay: true }]);
   });
 
   test('Cancel does not call onSave', async () => {
     const schedule = scheduleWith(availableTime('mon', '09:00:00', '17:00:00'));
-    const { onSave, onClose } = setup(schedule);
+    const { onSave, onCancel } = setup(schedule);
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
     expect(onSave).not.toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  test('omits the Cancel button when no onCancel is given', () => {
+    render(
+      <MedplumProvider medplum={new MockClient()}>
+        <ScheduleAvailabilityEditor
+          schedule={scheduleWith(availableTime('mon', '09:00:00', '17:00:00'))}
+          service={service}
+          onSave={vi.fn()}
+        />
+      </MedplumProvider>
+    );
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 
   test('invalid range disables Save', async () => {
@@ -418,6 +303,30 @@ describe('ScheduleAvailabilityEditor component', () => {
 
     expect(screen.getByTestId('schedule-availability-error-mon')).toBeDefined();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  test('overlapping ranges warn but still save', async () => {
+    const schedule = scheduleWith(availableTime('mon', '09:00:00', '13:00:00'));
+    const { onSave } = setup(schedule);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('schedule-availability-add-mon'));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('schedule-availability-start-mon-1'), { target: { value: '12:00' } });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('schedule-availability-end-mon-1'), { target: { value: '15:00' } });
+    });
+
+    expect(screen.getByTestId('schedule-availability-warning-mon')).toHaveTextContent('Time ranges overlap');
+    expect(screen.queryByTestId('schedule-availability-error-mon')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 
   test('clearing a time input reports a missing time and disables Save', async () => {
@@ -509,13 +418,7 @@ describe('ScheduleAvailabilityEditor component', () => {
     await act(async () => {
       render(
         <MedplumProvider medplum={medplum}>
-          <ScheduleAvailabilityEditor
-            schedule={schedule}
-            service={service}
-            opened={true}
-            onClose={vi.fn()}
-            onSave={vi.fn()}
-          />
+          <ScheduleAvailabilityEditor schedule={schedule} service={service} onCancel={vi.fn()} onSave={vi.fn()} />
         </MedplumProvider>
       );
     });

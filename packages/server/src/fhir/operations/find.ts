@@ -7,12 +7,12 @@ import {
   createReference,
   DEFAULT_MAX_SEARCH_COUNT,
   DEFAULT_SEARCH_COUNT,
-  isCodeableReferenceLikeTo,
   isNotFound,
   isReference,
   OperationOutcomeError,
   resolveId,
-  toCodeableReferenceLike,
+  serviceTypeIncludesService,
+  toServiceTypeCodeableConcepts,
 } from '@medplum/core';
 import type { FhirRequest, FhirResponse } from '@medplum/fhir-router';
 import type { Appointment, Bundle, HealthcareService, Reference, Schedule, Slot } from '@medplum/fhirtypes';
@@ -108,7 +108,7 @@ async function handler(params: {
 
   const effectiveRange = { start: requestedRange.start, end: requestedRange.end };
   schedules.forEach((schedule) => {
-    if (!isCodeableReferenceLikeTo(schedule.serviceType, healthcareService)) {
+    if (!serviceTypeIncludesService(schedule.serviceType, healthcareService)) {
       throw new OperationOutcomeError(
         badRequest('Schedule is not schedulable for requested service type', getPath(schedule))
       );
@@ -137,7 +137,7 @@ async function handler(params: {
   });
 
   const commonParameters = extractCommonParameters([...parameterGroup.values()]);
-  const serviceType = toCodeableReferenceLike(healthcareService);
+  const serviceType = toServiceTypeCodeableConcepts(healthcareService);
 
   const allAvailability = schedules.map((schedule) => {
     const schedulingParameters = parameterGroup.get(schedule);

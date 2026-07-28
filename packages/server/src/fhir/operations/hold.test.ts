@@ -1,7 +1,13 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { WithId } from '@medplum/core';
-import { createReference, isDefined, isResource, parseSearchRequest, toCodeableReferenceLike } from '@medplum/core';
+import {
+  createReference,
+  isDefined,
+  isResource,
+  parseSearchRequest,
+  toServiceTypeCodeableConcepts,
+} from '@medplum/core';
 import type {
   Appointment,
   Bundle,
@@ -135,7 +141,7 @@ describe('Appointment/$hold', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(opts.actor)],
-      serviceType: toCodeableReferenceLike(officeVisitService),
+      serviceType: toServiceTypeCodeableConcepts(officeVisitService),
       extension: opts.extension ?? [makeSchedulingExtension({ service: officeVisitService })],
       planningHorizon: opts.planningHorizon,
     });
@@ -172,7 +178,7 @@ describe('Appointment/$hold', () => {
             status: 'proposed',
             start: opts.start,
             end: opts.end,
-            serviceType: toCodeableReferenceLike(officeVisitService),
+            serviceType: toServiceTypeCodeableConcepts(officeVisitService),
             participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
             contained: [
               {
@@ -181,7 +187,7 @@ describe('Appointment/$hold', () => {
                 schedule: createReference(opts.schedule),
                 start: opts.start,
                 end: opts.end,
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               } satisfies Slot,
               ...(opts.extraSlots ?? []),
             ],
@@ -254,7 +260,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: createReference(practitioner1), status: 'tentative' },
                 { actor: createReference(practitioner2), status: 'tentative' },
@@ -266,7 +272,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule1),
                   start,
                   end,
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
                 {
                   resourceType: 'Slot',
@@ -274,7 +280,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule2),
                   start,
                   end,
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -388,7 +394,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
             },
           },
@@ -422,7 +428,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -431,7 +437,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule),
                   start,
                   end,
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             } satisfies Appointment,
@@ -462,7 +468,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [{ resourceType: 'Patient', id: 'inline-patient' }],
             },
@@ -496,7 +502,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: createReference(practitioner1), status: 'tentative' },
                 { actor: createReference(practitioner2), status: 'tentative' },
@@ -508,7 +514,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule1),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T15:00:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
                 {
                   resourceType: 'Slot',
@@ -516,7 +522,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule2),
                   start: '2026-01-15T15:00:00Z',
                   end: '2026-01-15T16:00:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -550,7 +556,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: createReference(practitioner1), status: 'tentative' },
                 { actor: createReference(practitioner2), status: 'tentative' },
@@ -562,7 +568,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule1),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T15:00:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
                 {
                   resourceType: 'Slot',
@@ -570,7 +576,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule2),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T14:30:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -601,7 +607,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -645,7 +651,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T14:30:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -654,7 +660,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T14:30:00Z', // 30 min instead of 60
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -768,7 +774,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -777,7 +783,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T15:00:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -810,7 +816,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -819,7 +825,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T15:00:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
                 {
                   resourceType: 'Slot',
@@ -827,7 +833,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule),
                   start: '2026-01-15T14:00:00Z',
                   end: '2026-01-15T15:00:00Z',
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -863,7 +869,7 @@ describe('Appointment/$hold', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: createReference(practitioner1), status: 'tentative' },
                 { actor: createReference(patient), status: 'accepted' },
@@ -875,7 +881,7 @@ describe('Appointment/$hold', () => {
                   schedule: createReference(schedule),
                   start,
                   end,
-                  serviceType: toCodeableReferenceLike(officeVisitService),
+                  serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 } satisfies Slot,
               ],
             },
@@ -918,7 +924,7 @@ describe('Appointment/$hold', () => {
                 schedule: createReference(schedule),
                 start: bufferStart,
                 end: busyStart,
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               },
             ],
           })
@@ -970,7 +976,7 @@ describe('Appointment/$hold', () => {
                 schedule: createReference(schedule),
                 start: bufferStart,
                 end: busyStart,
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               },
             ],
           })
@@ -1032,7 +1038,7 @@ describe('Appointment/$hold', () => {
                 schedule: createReference(schedule),
                 start: '2026-01-15T09:50:00-05:00', // only 10 min before busyStart
                 end: busyStart,
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               },
             ],
           })
@@ -1075,7 +1081,7 @@ describe('Appointment/$hold', () => {
                 schedule: createReference(schedule),
                 start: busyEnd,
                 end: bufferEnd,
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               },
             ],
           })
@@ -1135,7 +1141,7 @@ describe('Appointment/$hold', () => {
                 schedule: createReference(schedule),
                 start: busyEnd,
                 end: '2026-01-15T10:10:00-05:00', // only 10 min, not 20
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               },
             ],
           })
@@ -1159,7 +1165,7 @@ describe('Appointment/$hold', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(practitioner1), createReference(extraPractitioner)],
-      serviceType: toCodeableReferenceLike(officeVisitService),
+      serviceType: toServiceTypeCodeableConcepts(officeVisitService),
       extension: [makeSchedulingExtension({ service: officeVisitService })],
     });
 
@@ -1257,7 +1263,7 @@ describe('scheduling flow integration test', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(device)],
-      serviceType: toCodeableReferenceLike(service),
+      serviceType: toServiceTypeCodeableConcepts(service),
       extension: [
         {
           url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',

@@ -4,10 +4,10 @@ import { MantineProvider } from '@mantine/core';
 import { Notifications, notifications } from '@mantine/notifications';
 import type { WithId } from '@medplum/core';
 import {
-  isCodeableReferenceLikeTo,
   SchedulingParametersURI,
+  serviceTypeIncludesService,
   ServiceTypeReferenceURI,
-  toCodeableReferenceLike,
+  toServiceTypeCodeableConcepts,
 } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import { DrAliceSmith, DrAliceSmithSchedule, MockClient } from '@medplum/mock';
@@ -92,7 +92,7 @@ describe('ScheduleSettings', () => {
     test('switch is checked when the service is already linked to the schedule', async () => {
       const schedule: Schedule = {
         ...defaultSchedule,
-        serviceType: toCodeableReferenceLike(schedulableService),
+        serviceType: toServiceTypeCodeableConcepts(schedulableService),
       };
       await act(async () => renderSettings(schedule));
       expect(screen.getByRole('switch', { name: 'Annual Checkup' })).toBeChecked();
@@ -208,7 +208,7 @@ describe('ScheduleSettings', () => {
       const user = userEvent.setup();
       const schedule: Schedule = {
         ...defaultSchedule,
-        serviceType: toCodeableReferenceLike(schedulableService),
+        serviceType: toServiceTypeCodeableConcepts(schedulableService),
       };
       const updateSpy = vi.spyOn(medplum, 'updateResource');
       await act(async () => renderSettings(schedule));
@@ -219,7 +219,7 @@ describe('ScheduleSettings', () => {
 
       await waitFor(() => {
         const [savedSchedule] = updateSpy.mock.calls[0] as [Schedule];
-        expect(isCodeableReferenceLikeTo(savedSchedule.serviceType, schedulableService)).toBeFalsy();
+        expect(serviceTypeIncludesService(savedSchedule.serviceType, schedulableService)).toBeFalsy();
       });
     });
   });

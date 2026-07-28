@@ -6,7 +6,7 @@ import {
   getReferenceString,
   isDefined,
   parseSearchRequest,
-  toCodeableReferenceLike,
+  toServiceTypeCodeableConcepts,
 } from '@medplum/core';
 import type {
   AccessPolicy,
@@ -130,7 +130,7 @@ describe('Appointment/$book', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(opts.actor)],
-      serviceType: toCodeableReferenceLike(officeVisitService),
+      serviceType: toServiceTypeCodeableConcepts(officeVisitService),
       extension: opts.extension ?? [makeSchedulingExtension({ service: officeVisitService })],
       planningHorizon: opts.planningHorizon,
     });
@@ -172,7 +172,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -220,7 +220,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: schedule1.actor[0], status: 'tentative' },
                 { actor: schedule2.actor[0], status: 'tentative' },
@@ -294,7 +294,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: schedule1.actor[0], status: 'tentative' },
                 { actor: schedule2.actor[0], status: 'tentative' },
@@ -349,7 +349,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T15:00:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: schedule1.actor[0], status: 'tentative' },
                 { actor: schedule2.actor[0], status: 'tentative' },
@@ -415,7 +415,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -506,7 +506,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -561,7 +561,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: schedule1.actor[0], status: 'tentative' },
                 { actor: schedule2.actor[0], status: 'tentative' },
@@ -622,7 +622,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -682,7 +682,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -716,7 +716,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T14:00:00Z',
               end: '2026-01-15T14:30:00Z',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -759,7 +759,7 @@ describe('Appointment/$book', () => {
         resourceType: 'Schedule',
         meta: { project: project.project.id },
         actor: [createReference(practitioner1)],
-        serviceType: toCodeableReferenceLike(officeVisitService),
+        serviceType: toServiceTypeCodeableConcepts(officeVisitService),
         extension: [
           {
             url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',
@@ -799,7 +799,7 @@ describe('Appointment/$book', () => {
                 status: 'proposed',
                 start,
                 end,
-                serviceType: toCodeableReferenceLike(officeVisitService),
+                serviceType: toServiceTypeCodeableConcepts(officeVisitService),
                 participant: [{ actor: schedule.actor[0], status: 'tentative' }],
                 contained: [
                   {
@@ -823,7 +823,7 @@ describe('Appointment/$book', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(practitioner1)],
-      serviceType: toCodeableReferenceLike(officeVisitService),
+      serviceType: toServiceTypeCodeableConcepts(officeVisitService),
       extension: [
         {
           url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',
@@ -861,7 +861,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T09:00:00-05:00',
               end: '2026-01-15T10:00:00-05:00',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -899,7 +899,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T10:00:00-05:00',
               end: '2026-01-15T11:00:00-05:00',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -943,7 +943,7 @@ describe('Appointment/$book', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(practitioner1)],
-      serviceType: toCodeableReferenceLike(officeVisitService),
+      serviceType: toServiceTypeCodeableConcepts(officeVisitService),
       extension: [
         {
           url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',
@@ -985,7 +985,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T16:30:00-05:00',
               end: '2026-01-15T17:00:00-05:00',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -1023,7 +1023,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: '2026-01-15T16:00:00-05:00',
               end: '2026-01-15T16:30:00-05:00',
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -1080,7 +1080,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [
                 { actor: schedule.actor[0], status: 'tentative' },
                 { actor: createReference(patient), status: 'accepted' },
@@ -1140,7 +1140,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               slot: [{ reference: 'Slot/already-set' }],
               contained: [
@@ -1198,7 +1198,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: misalignedStart,
               end: misalignedEnd,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -1237,7 +1237,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start: alignedStart,
               end: alignedEnd,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: createReference(practitioner1), status: 'tentative' }],
               contained: [
                 {
@@ -1312,7 +1312,7 @@ describe('Appointment/$book', () => {
                 status: 'proposed',
                 start: '2026-01-15T14:00:00Z',
                 end: '2026-01-15T15:00:00Z',
-                serviceType: toCodeableReferenceLike(service),
+                serviceType: toServiceTypeCodeableConcepts(service),
                 participant: [{ actor: schedule.actor[0], status: 'tentative' }],
                 contained: [
                   {
@@ -1350,7 +1350,7 @@ describe('Appointment/$book', () => {
                 status: 'proposed',
                 start: '2026-01-15T07:00:00-05:00',
                 end: '2026-01-15T08:00:00-05:00',
-                serviceType: toCodeableReferenceLike(service),
+                serviceType: toServiceTypeCodeableConcepts(service),
                 participant: [{ actor: schedule.actor[0], status: 'tentative' }],
                 contained: [
                   {
@@ -1400,7 +1400,7 @@ describe('Appointment/$book', () => {
         resourceType: 'Schedule',
         meta: { project: project.project.id },
         actor: [createReference(practitioner1)],
-        serviceType: toCodeableReferenceLike(service),
+        serviceType: toServiceTypeCodeableConcepts(service),
         extension: [
           {
             url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',
@@ -1427,7 +1427,7 @@ describe('Appointment/$book', () => {
                 status: 'proposed',
                 start: '2026-01-15T14:00:00Z',
                 end: '2026-01-15T15:00:00Z',
-                serviceType: toCodeableReferenceLike(service),
+                serviceType: toServiceTypeCodeableConcepts(service),
                 participant: [{ actor: schedule.actor[0], status: 'tentative' }],
                 contained: [
                   {
@@ -1458,7 +1458,7 @@ describe('Appointment/$book', () => {
                 status: 'proposed',
                 start: '2026-01-15T14:00:00Z',
                 end: '2026-01-15T14:30:00Z',
-                serviceType: toCodeableReferenceLike(service),
+                serviceType: toServiceTypeCodeableConcepts(service),
                 participant: [{ actor: schedule.actor[0], status: 'tentative' }],
                 contained: [
                   {
@@ -1507,7 +1507,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -1546,7 +1546,7 @@ describe('Appointment/$book', () => {
               status: 'proposed',
               start,
               end,
-              serviceType: toCodeableReferenceLike(officeVisitService),
+              serviceType: toServiceTypeCodeableConcepts(officeVisitService),
               participant: [{ actor: schedule.actor[0], status: 'tentative' }],
               contained: [
                 {
@@ -1603,7 +1603,7 @@ describe('scheduling flow integration test', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(practitioner)],
-      serviceType: toCodeableReferenceLike(service),
+      serviceType: toServiceTypeCodeableConcepts(service),
       extension: [
         {
           url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',
@@ -1665,7 +1665,7 @@ describe('scheduling flow integration test', () => {
       resourceType: 'Schedule',
       meta: { project: project.project.id },
       actor: [createReference(practitioner)],
-      serviceType: toCodeableReferenceLike(service),
+      serviceType: toServiceTypeCodeableConcepts(service),
       extension: [
         {
           url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',
@@ -1754,7 +1754,7 @@ describe('scheduling flow integration test', () => {
               start,
               end,
               status: 'proposed',
-              serviceType: toCodeableReferenceLike(service),
+              serviceType: toServiceTypeCodeableConcepts(service),
               participant: [
                 { actor: createReference(profile), status: 'accepted' },
                 { actor: createReference(practitioner), status: 'accepted' },

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { WithId } from '@medplum/core';
-import { ContentType, createReference, ServiceTypeReferenceURI, toCodeableReferenceLike } from '@medplum/core';
+import { ContentType, createReference, ServiceTypeReferenceURI, toServiceTypeCodeableConcepts } from '@medplum/core';
 import type {
   Appointment,
   Bundle,
@@ -238,7 +238,7 @@ describe('Appointment/$find', () => {
     availability: AvailabilityOptions[],
     opts?: { actor?: Schedule['actor']; planningHorizon?: Schedule['planningHorizon'] }
   ): Promise<Schedule> {
-    const serviceType = availability.flatMap((entry) => toCodeableReferenceLike(entry.service));
+    const serviceType = availability.flatMap((entry) => toServiceTypeCodeableConcepts(entry.service));
     return systemRepo.createResource<Schedule>({
       resourceType: 'Schedule',
       meta: { project: project.id },
@@ -710,7 +710,7 @@ describe('Appointment/$find', () => {
       resourceType: 'Schedule',
       meta: { project: project.id },
       actor: [createReference(practitioner), createReference(location)],
-      serviceType: toCodeableReferenceLike(genericVisit),
+      serviceType: toServiceTypeCodeableConcepts(genericVisit),
       extension: [
         {
           url: 'https://medplum.com/fhir/StructureDefinition/SchedulingParameters',

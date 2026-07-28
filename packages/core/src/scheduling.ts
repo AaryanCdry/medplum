@@ -1,6 +1,14 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import type { CodeableConcept, Extension, HealthcareService, Reference, Resource, Schedule } from '@medplum/fhirtypes';
+import type {
+  CodeableConcept,
+  Extension,
+  HealthcareService,
+  HealthcareServiceAvailableTime,
+  Reference,
+  Resource,
+  Schedule,
+} from '@medplum/fhirtypes';
 import type { WithId } from './utils';
 import { createReference, deepClone, getExtension, getExtensionValue, getReferenceString, isDefined } from './utils';
 
@@ -8,40 +16,12 @@ export const SchedulingParametersURI = 'https://medplum.com/fhir/StructureDefini
 export const ServiceTypeReferenceURI = 'https://medplum.com/fhir/service-type-reference';
 export const TimezoneExtensionURI = 'http://hl7.org/fhir/StructureDefinition/timezone';
 
-export type DayOfWeek = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export const DAYS_OF_WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
-export const DAYS_OF_WEEK: DayOfWeek[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-export interface TimeRange {
-  readonly start: string;
-  readonly end: string;
-}
-
-export interface DayAvailability {
-  allDay: boolean;
-  ranges: TimeRange[];
-}
-
-export type WeeklyAvailability = Record<DayOfWeek, DayAvailability>;
+export type DayOfWeek = (typeof DAYS_OF_WEEK)[number];
 
 export function isDayOfWeek(value: string | undefined): value is DayOfWeek {
-  return (
-    value === 'mon' ||
-    value === 'tue' ||
-    value === 'wed' ||
-    value === 'thu' ||
-    value === 'fri' ||
-    value === 'sat' ||
-    value === 'sun'
-  );
-}
-
-export function emptyWeeklyAvailability(): WeeklyAvailability {
-  const weekly = {} as WeeklyAvailability;
-  for (const day of DAYS_OF_WEEK) {
-    weekly[day] = { allDay: false, ranges: [] };
-  }
-  return weekly;
+  return DAYS_OF_WEEK.includes(value as DayOfWeek);
 }
 
 /**
@@ -64,78 +44,74 @@ function matchesServiceSchedulingParameters(extension: Extension, serviceReferen
 }
 
 /**
- * Finds the SchedulingParameters extension on a Schedule for a HealthcareService.
+ * Finds the SchedulingParameters extensions on a Schedule for a HealthcareService.
  * @param schedule - Schedule to inspect
  * @param service - HealthcareService referenced by the desired parameters
- * @returns The matching SchedulingParameters extension, if present
+ * @returns Every matching SchedulingParameters extension, in document order
  */
-export function getServiceSchedulingParameters(schedule: Schedule, service: HealthcareService): Extension | undefined {
-  const reference = createReference(service).reference;
-  return schedule.extension?.find((extension) => matchesServiceSchedulingParameters(extension, reference));
+export function getServiceSchedulingParameters(schedule: Schedule, service: HealthcareService): Extension[] {
+  const reference = getReferenceString(service);
+  if (!reference) {
+    return [];
+  }
+  return schedule.extension?.filter((extension) => matchesServiceSchedulingParameters(extension, reference)) ?? [];
+}
+
+function getSubExtensions(extension: Extension | undefined, url: string): Extension[] {
+  return extension?.extension?.filter((subextension) => subextension.url === url) ?? [];
+}
+
+// Convert a single `SchedulingParameters.availability.availableTime`
+// sub-sub-extension into a HealthcareServiceAvailableTime. Note that
+// `daysOfWeek` repeats once per day value rather than holding an array.
+function toAvailableTime(availableTime: Extension): HealthcareServiceAvailableTime {
+  const daysOfWeek = getSubExtensions(availableTime, 'daysOfWeek')
+    .map((subextension) => subextension.valueCode)
+    .filter(isDayOfWeek);
+
+  if (getSubExtensions(availableTime, 'allDay')[0]?.valueBoolean) {
+    return { daysOfWeek, allDay: true };
+  }
+
+  return {
+    daysOfWeek,
+    availableStartTime: getSubExtensions(availableTime, 'availableStartTime')[0]?.valueTime,
+    availableEndTime: getSubExtensions(availableTime, 'availableEndTime')[0]?.valueTime,
+  };
+}
+
+function getAvailabilityOverride(
+  schedule: Schedule,
+  service: HealthcareService
+): HealthcareServiceAvailableTime[] | undefined {
+  const availability = getServiceSchedulingParameters(schedule, service).flatMap((parameters) =>
+    getSubExtensions(parameters, 'availability')
+  );
+
+  if (!availability.length) {
+    return undefined;
+  }
+
+  return availability.flatMap((extension) => getSubExtensions(extension, 'availableTime')).map(toAvailableTime);
 }
 
 /**
- * Expands a Schedule's availability override into per-day availability.
- * @param schedule - Schedule containing the availability override
- * @param service - HealthcareService referenced by the desired parameters
- * @returns Weekly availability parsed from the matching override
+ * Resolves the availability in effect for a Schedule/HealthcareService pair.
+ * A Schedule-level override wins over the service default when present.
+ * @param schedule - Schedule that may override the service default
+ * @param service - HealthcareService providing the default availability
+ * @returns The availability in effect, or undefined when none is configured
  */
-export function parseWeeklyAvailability(schedule: Schedule, service: HealthcareService): WeeklyAvailability {
-  const weekly = emptyWeeklyAvailability();
-  const parameters = getServiceSchedulingParameters(schedule, service);
-  const availability = parameters?.extension?.find((subextension) => subextension.url === 'availability');
-
-  for (const availableTime of availability?.extension ?? []) {
-    if (availableTime.url !== 'availableTime') {
-      continue;
-    }
-    const allDay = availableTime.extension?.find((extension) => extension.url === 'allDay')?.valueBoolean === true;
-    const start = availableTime.extension?.find((extension) => extension.url === 'availableStartTime')?.valueTime;
-    const end = availableTime.extension?.find((extension) => extension.url === 'availableEndTime')?.valueTime;
-    if (!allDay && (!start || !end)) {
-      continue;
-    }
-    for (const dayExtension of availableTime.extension ?? []) {
-      if (dayExtension.url === 'daysOfWeek' && isDayOfWeek(dayExtension.valueCode)) {
-        if (allDay) {
-          weekly[dayExtension.valueCode].allDay = true;
-        } else {
-          weekly[dayExtension.valueCode].ranges.push({ start: start as string, end: end as string });
-        }
-      }
-    }
+export function extractAvailability(
+  schedule: Schedule | undefined,
+  service: HealthcareService | undefined
+): HealthcareServiceAvailableTime[] | undefined {
+  if (!service) {
+    return undefined;
   }
 
-  return weekly;
-}
-
-/**
- * Expands a HealthcareService's native availableTime field into per-day availability.
- * @param service - HealthcareService containing default availability
- * @returns Weekly availability parsed from the service
- */
-export function parseServiceAvailability(service: HealthcareService): WeeklyAvailability {
-  const weekly = emptyWeeklyAvailability();
-
-  for (const available of service.availableTime ?? []) {
-    const allDay = available.allDay === true;
-    const start = available.availableStartTime;
-    const end = available.availableEndTime;
-    if (!allDay && (!start || !end)) {
-      continue;
-    }
-    for (const day of available.daysOfWeek ?? []) {
-      if (isDayOfWeek(day)) {
-        if (allDay) {
-          weekly[day].allDay = true;
-        } else {
-          weekly[day].ranges.push({ start: start as string, end: end as string });
-        }
-      }
-    }
-  }
-
-  return weekly;
+  const override = schedule && getAvailabilityOverride(schedule, service);
+  return override ?? service.availableTime;
 }
 
 /**
@@ -145,59 +121,54 @@ export function parseServiceAvailability(service: HealthcareService): WeeklyAvai
  * @returns True if matching parameters contain an availability override
  */
 export function hasAvailabilityOverride(schedule: Schedule, service: HealthcareService): boolean {
-  const parameters = getServiceSchedulingParameters(schedule, service);
-  return parameters?.extension?.some((subextension) => subextension.url === 'availability') ?? false;
+  return getServiceSchedulingParameters(schedule, service).some((parameters) =>
+    parameters.extension?.some((subextension) => subextension.url === 'availability')
+  );
 }
 
 /**
  * Builds the SchedulingParameters availability sub-extension.
- * @param weekly - Weekly availability to serialize
+ * @param availableTime - Availability to serialize
  * @returns An availability extension containing availableTime entries
  */
-export function buildAvailabilityExtension(weekly: WeeklyAvailability): Extension {
-  const availableTime: Extension[] = [];
-  for (const day of DAYS_OF_WEEK) {
-    if (weekly[day].allDay) {
-      availableTime.push({
+export function buildAvailabilityExtension(availableTime: HealthcareServiceAvailableTime[]): Extension {
+  return {
+    url: 'availability',
+    extension: availableTime.map((entry) => {
+      const days: Extension[] = (entry.daysOfWeek ?? []).map((day) => ({ url: 'daysOfWeek', valueCode: day }));
+      if (entry.allDay) {
+        return { url: 'availableTime', extension: [...days, { url: 'allDay', valueBoolean: true }] };
+      }
+      return {
         url: 'availableTime',
         extension: [
-          { url: 'daysOfWeek', valueCode: day },
-          { url: 'allDay', valueBoolean: true },
+          ...days,
+          { url: 'availableStartTime', valueTime: entry.availableStartTime },
+          { url: 'availableEndTime', valueTime: entry.availableEndTime },
         ],
-      });
-      continue;
-    }
-    for (const range of weekly[day].ranges) {
-      availableTime.push({
-        url: 'availableTime',
-        extension: [
-          { url: 'daysOfWeek', valueCode: day },
-          { url: 'availableStartTime', valueTime: range.start },
-          { url: 'availableEndTime', valueTime: range.end },
-        ],
-      });
-    }
-  }
-  return { url: 'availability', extension: availableTime };
+      };
+    }),
+  };
 }
 
 /**
- * Immutably applies weekly availability to a Schedule for a HealthcareService.
+ * Immutably applies an availability override to a Schedule for a HealthcareService.
  * @param schedule - Schedule to update
  * @param service - HealthcareService referenced by the parameters
- * @param weekly - Weekly availability to apply
+ * @param availableTime - Availability to apply
  * @returns A cloned Schedule containing the availability override
  */
-export function applyWeeklyAvailability(
+export function applyAvailability(
   schedule: Schedule,
   service: HealthcareService,
-  weekly: WeeklyAvailability
+  availableTime: HealthcareServiceAvailableTime[]
 ): Schedule {
-  const updated = deepClone(schedule);
+  // Start from a cleared clone so a Schedule carrying more than one matching
+  // SchedulingParameters extension cannot keep a stale override behind.
+  const updated = clearAvailabilityOverride(schedule, service);
   const serviceReference = createReference(service);
-  const availabilityExtension = buildAvailabilityExtension(weekly);
 
-  updated.extension = updated.extension ? [...updated.extension] : [];
+  updated.extension ??= [];
 
   let parameters = updated.extension.find((extension) =>
     matchesServiceSchedulingParameters(extension, serviceReference.reference)
@@ -211,10 +182,7 @@ export function applyWeeklyAvailability(
     updated.extension.push(parameters);
   }
 
-  parameters.extension = [
-    ...(parameters.extension?.filter((subextension) => subextension.url !== 'availability') ?? []),
-    availabilityExtension,
-  ];
+  parameters.extension = [...(parameters.extension ?? []), buildAvailabilityExtension(availableTime)];
 
   return updated;
 }
@@ -227,14 +195,11 @@ export function applyWeeklyAvailability(
  */
 export function clearAvailabilityOverride(schedule: Schedule, service: HealthcareService): Schedule {
   const updated = deepClone(schedule);
-  const serviceReference = createReference(service);
 
-  const parameters = updated.extension?.find((extension) =>
-    matchesServiceSchedulingParameters(extension, serviceReference.reference)
-  );
-
-  if (parameters?.extension) {
-    parameters.extension = parameters.extension.filter((subextension) => subextension.url !== 'availability');
+  for (const parameters of getServiceSchedulingParameters(updated, service)) {
+    if (parameters.extension) {
+      parameters.extension = parameters.extension.filter((subextension) => subextension.url !== 'availability');
+    }
   }
 
   return updated;
@@ -254,18 +219,17 @@ export function getSchedulingTimezone(
   service: HealthcareService,
   actor?: Resource
 ): string | undefined {
-  const scheduleParameters = getServiceSchedulingParameters(schedule, service);
-  const scheduleTimezone = scheduleParameters?.extension?.find(
-    (subextension) => subextension.url === 'timezone'
-  )?.valueCode;
+  const scheduleTimezone = getServiceSchedulingParameters(schedule, service)
+    .flatMap((parameters) => getSubExtensions(parameters, 'timezone'))
+    .map((subextension) => subextension.valueCode)
+    .find(isDefined);
   if (scheduleTimezone) {
     return scheduleTimezone;
   }
 
-  const serviceParameters = getExtension(service, SchedulingParametersURI);
-  const serviceTimezone = serviceParameters?.extension?.find(
-    (subextension) => subextension.url === 'timezone'
-  )?.valueCode;
+  const serviceTimezone = getSubExtensions(getExtension(service, SchedulingParametersURI), 'timezone')
+    .map((subextension) => subextension.valueCode)
+    .find(isDefined);
   if (serviceTimezone) {
     return serviceTimezone;
   }
@@ -275,12 +239,13 @@ export function getSchedulingTimezone(
 }
 
 /**
- * Converts a HealthcareService into an R4 CodeableConcept representation of
- * CodeableReference<HealthcareService>.
+ * Converts a HealthcareService into the CodeableConcept values used by
+ * `Schedule.serviceType` and `Appointment.serviceType`, which encode an R4
+ * approximation of `CodeableReference<HealthcareService>`.
  * @param service - HealthcareService to represent
  * @returns CodeableConcept values containing a reference to the service
  */
-export function toCodeableReferenceLike(service: WithId<HealthcareService>): CodeableConcept[] {
+export function toServiceTypeCodeableConcepts(service: WithId<HealthcareService>): CodeableConcept[] {
   const extension = [{ url: ServiceTypeReferenceURI, valueReference: createReference(service) }];
   if (!service.type?.length) {
     return [{ extension }];
@@ -292,32 +257,25 @@ export function toCodeableReferenceLike(service: WithId<HealthcareService>): Cod
 }
 
 /**
- * Returns whether any CodeableReference-like concept refers to the service.
+ * Returns whether any serviceType concept refers to the given HealthcareService.
  * @param serviceType - CodeableConcept values to inspect
  * @param service - HealthcareService or reference to match
  * @returns True if any concept references the service
  */
-export function isCodeableReferenceLikeTo(
+export function serviceTypeIncludesService(
   serviceType: CodeableConcept[] | undefined,
   service: WithId<HealthcareService> | (Reference<HealthcareService> & { reference: string })
 ): boolean {
-  if (!serviceType?.length) {
-    return false;
-  }
   const reference = getReferenceString(service);
-  return serviceType.some((concept) => {
-    const serviceReference = getExtensionValue(concept, ServiceTypeReferenceURI) as
-      Reference<HealthcareService> | undefined;
-    return serviceReference?.reference === reference;
-  });
+  return extractServiceTypeReferences(serviceType).some((serviceReference) => serviceReference.reference === reference);
 }
 
 /**
- * Extracts HealthcareService references from CodeableReference-like concepts.
+ * Extracts HealthcareService references from serviceType concepts.
  * @param serviceType - CodeableConcept values to inspect
  * @returns HealthcareService references embedded in the concepts
  */
-export function extractReferencesFromCodeableReferenceLike(
+export function extractServiceTypeReferences(
   serviceType: CodeableConcept[] | undefined
 ): Reference<HealthcareService>[] {
   if (!serviceType?.length) {

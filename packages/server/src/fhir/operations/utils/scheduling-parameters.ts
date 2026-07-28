@@ -1,7 +1,14 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import type { WithId } from '@medplum/core';
-import { badRequest, createReference, isDefined, OperationOutcomeError, SchedulingParametersURI } from '@medplum/core';
+import type { DayOfWeek, WithId } from '@medplum/core';
+import {
+  badRequest,
+  createReference,
+  isDayOfWeek,
+  isDefined,
+  OperationOutcomeError,
+  SchedulingParametersURI,
+} from '@medplum/core';
 import type {
   Extension,
   HealthcareService,
@@ -80,8 +87,6 @@ export type SchedulingParametersExtension = {
   extension: SchedulingParametersExtensionExtension[];
 };
 
-type DayOfWeek = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
-
 type SchedulingParametersAvailability = {
   dayOfWeek: DayOfWeek[];
   availableStartTime: WallClockTime;
@@ -138,10 +143,6 @@ function isReferenceTo<T extends Resource>(reference: Reference<T> | undefined, 
   }
   const [refType, id] = reference.reference.split('/');
   return refType === resource.resourceType && id === resource.id;
-}
-
-function isDayOfWeek(s: string): s is DayOfWeek {
-  return s === 'mon' || s === 'tue' || s === 'wed' || s === 'thu' || s === 'fri' || s === 'sat' || s === 'sun';
 }
 
 function durationToMinutes(extension: WithPath<Extension>): number {

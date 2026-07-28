@@ -182,6 +182,16 @@ The `availability` sub-extension mirrors the FHIR R5+ [`Availability`](https://h
   {ExampleCode}
 </MedplumCodeBlock>
 
+#### Windows that cross midnight
+
+When `availableEndTime` is less than or equal to `availableStartTime`, the window is read as continuing into the following day. An entry of `{ daysOfWeek: ['tue'], availableStartTime: '22:00:00', availableEndTime: '06:00:00' }` means 10pm Tuesday until 6am Wednesday. This is also how 24-hour availability is expressed without `allDay`: `00:00:00` to `00:00:00` on all seven days, since the FHIR [`time`](https://hl7.org/fhir/R4/datatypes.html#time) type does not permit `24:00`.
+
+:::note[Beta limitation]
+
+The `ScheduleAvailabilityEditor` React component described [below](#editing-availability-in-a-react-app) cannot yet author these windows; it requires an end time after the start time. Overnight windows have to be written directly into the extension for now. This is expected to be revisited before scheduling leaves beta.
+
+:::
+
 ## Service Level Availability
 
 ### Service Types and HealthcareService
@@ -292,9 +302,9 @@ In this example:
 
 ## Editing Availability in a React App
 
-Rather than hand-authoring the [`availability` extension](#availability-extension), the [`@medplum/react`](/docs/react) library provides a `ScheduleAvailabilityEditor` component — a drawer for editing a Schedule's weekly `availability` override for a given service type. It implements the [override behavior](#override-behavior) described above: it seeds from the [service-level default](#service-level-availability) when the Schedule has no override, treats any edit as an override, and can reset back to inheriting the default. It is used in the [Medplum Provider](https://github.com/medplum/medplum/tree/main/examples/medplum-provider) example app.
+Rather than hand-authoring the [`availability` extension](#availability-extension), the [`@medplum/react`](/docs/react) library provides a `ScheduleAvailabilityEditor` component for editing a Schedule's weekly `availability` override for a given service type. It implements the [override behavior](#override-behavior) described above: it seeds from the [service-level default](#service-level-availability) when the Schedule has no override, treats any edit as an override, and can reset back to inheriting the default. It is used in the [Medplum Provider](https://github.com/medplum/medplum/tree/main/examples/medplum-provider) example app.
 
-The component is controlled — it returns an updated `Schedule` for you to persist (for example, via `medplum.updateResource`). The same module also exports the framework-agnostic helpers it is built on, for reading, writing, and validating the `availability` override without the UI (for example, in a bot or a custom editor).
+The component renders form content only, so you choose the container: place it inline in a page, or wrap it in a Drawer or Modal. It is controlled, returning an updated `Schedule` for you to persist (for example, via `medplum.updateResource`). `@medplum/core` exports the framework-agnostic helpers it is built on, for reading and writing the `availability` override without the UI (for example, in a bot or a custom editor).
 
 See the [`ScheduleAvailabilityEditor` stories in Storybook](https://storybook.medplum.com/?path=/docs/medplum-scheduleavailabilityeditor--docs) for interactive examples and the full component and utility API.
 
