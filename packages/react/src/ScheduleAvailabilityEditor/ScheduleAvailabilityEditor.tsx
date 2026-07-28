@@ -64,9 +64,16 @@ interface DayDraft {
 
 type DraftAvailability = Record<DayOfWeek, DayDraft>;
 
+/**
+ * Props for the ScheduleAvailabilityEditor component.
+ * @param schedule - The Schedule holding the availability override. Must have exactly one actor, as scheduling requires.
+ * @param service - The HealthcareService whose availability is being edited.
+ * @param onSave - Called with the updated Schedule when the user saves. The caller performs the write, and may return a
+ * Promise to keep the save button in its pending state until the write settles.
+ * @param onCancel - Called when the user cancels. Omit to hide the cancel button, e.g. when the editor is inline on a page.
+ */
 export interface ScheduleAvailabilityEditorProps {
   readonly schedule: Schedule;
-  /** The service whose availability is being edited. */
   readonly service: HealthcareService;
   readonly onSave: (updatedSchedule: Schedule) => void | Promise<void>;
   readonly onCancel?: () => void;
