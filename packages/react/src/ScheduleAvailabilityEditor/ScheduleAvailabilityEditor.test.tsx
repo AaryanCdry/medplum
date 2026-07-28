@@ -194,6 +194,28 @@ describe('ScheduleAvailabilityEditor utils', () => {
     expect(isFullDayRange({ start: '', end: '' })).toBe(false);
   });
 
+  test('range classification ignores time precision', () => {
+    // The time inputs emit `HH:mm` while stored availability uses `HH:mm:ss`, so
+    // the two have to compare equal.
+    expect(isFullDayRange({ start: '09:00', end: '09:00:00' })).toBe(true);
+    expect(isOvernightRange({ start: '22:00', end: '06:00:00' })).toBe(true);
+    expect(isOvernightRange({ start: '09:00', end: '17:00:00' })).toBe(false);
+
+    // Seconds and fractional seconds are both significant and both parse.
+    expect(isOvernightRange({ start: '09:00:30', end: '09:00:00' })).toBe(true);
+    expect(isFullDayRange({ start: '09:00:30', end: '09:00:30' })).toBe(true);
+    expect(isOvernightRange({ start: '09:00:00.500', end: '09:00:00' })).toBe(true);
+    expect(isFullDayRange({ start: '09:00:00.500', end: '09:00:00.500' })).toBe(true);
+
+    // The 24/7 sentinel is a full day rather than an overnight window.
+    expect(isFullDayRange({ start: '00:00:00', end: '00:00:00' })).toBe(true);
+    expect(isOvernightRange({ start: '00:00:00', end: '00:00:00' })).toBe(false);
+
+    // Unparseable values are classified as neither rather than throwing.
+    expect(isOvernightRange({ start: 'not a time', end: '06:00:00' })).toBe(false);
+    expect(isFullDayRange({ start: 'not a time', end: 'not a time' })).toBe(false);
+  });
+
   test('nextDayOfWeek advances and wraps at the end of the week', () => {
     expect(nextDayOfWeek('mon')).toBe('tue');
     expect(nextDayOfWeek('sat')).toBe('sun');
@@ -234,6 +256,65 @@ describe('ScheduleAvailabilityEditor utils', () => {
     const sameDay = blankWeeklyAvailability();
     sameDay.fri.ranges = [{ start: '09:00:00', end: '17:00:00' }];
     expect(getSpilloverByDay(sameDay)).toEqual({});
+  });
+
+  test('getSpilloverByDay ignores an all-day source, which ends at midnight', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.allDay = true;
+    expect(getSpilloverByDay(weekly)).toEqual({});
+  });
+
+  test('getSpilloverByDay reports a same-time range, which covers a full day', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.ranges = [{ start: '09:00:00', end: '09:00:00' }];
+    expect(getSpilloverByDay(weekly)).toEqual({ sat: [{ from: 'fri', end: '09:00:00' }] });
+  });
+
+  test('getSpilloverByDay collects every window landing on the same day', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.ranges = [
+      { start: '09:00:00', end: '17:00:00' },
+      { start: '20:00:00', end: '02:00:00' },
+      { start: '22:00:00', end: '06:00:00' },
+    ];
+
+    expect(getSpilloverByDay(weekly)).toEqual({
+      sat: [
+        { from: 'fri', end: '02:00:00' },
+        { from: 'fri', end: '06:00:00' },
+      ],
+    });
+  });
+
+  test('getSpilloverByDay only reports the day at the end of a run of overnight days', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.thu.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+    weekly.fri.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+
+    // Friday has hours of its own, so it needs no note. Saturday has none, so it
+    // gets one from Friday.
+    expect(getSpilloverByDay(weekly)).toEqual({ sat: [{ from: 'fri', end: '06:00:00' }] });
+  });
+
+  test('getSpilloverByDay reports each receiving day independently', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.mon.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+    weekly.thu.ranges = [{ start: '23:00:00', end: '03:00:00' }];
+
+    expect(getSpilloverByDay(weekly)).toEqual({
+      tue: [{ from: 'mon', end: '06:00:00' }],
+      fri: [{ from: 'thu', end: '03:00:00' }],
+    });
+  });
+
+  test('an overnight range round-trips through the FHIR representation', () => {
+    const weekly = blankWeeklyAvailability();
+    weekly.fri.ranges = [{ start: '22:00:00', end: '06:00:00' }];
+
+    expect(fromWeeklyAvailability(weekly)).toEqual([
+      { daysOfWeek: ['fri'], availableStartTime: '22:00:00', availableEndTime: '06:00:00' },
+    ]);
+    expect(toWeeklyAvailability(fromWeeklyAvailability(weekly))).toEqual(weekly);
   });
 
   test('validateWeeklyAvailability treats allDay days as valid', () => {
@@ -406,6 +487,15 @@ describe('ScheduleAvailabilityEditor component', () => {
     expect(screen.queryByTestId('schedule-availability-overnight-mon-0')).toBeNull();
   });
 
+  test('discloses the next day only on the row that wraps', async () => {
+    setup(scheduleWith(availableTime('mon', '09:00:00', '17:00:00'), availableTime('mon', '22:00:00', '06:00:00')));
+
+    expect(screen.queryByTestId('schedule-availability-overnight-mon-0')).toBeNull();
+    expect(screen.getByTestId('schedule-availability-overnight-mon-1')).toHaveTextContent(
+      'Ends 6:00 AM on Tuesday, the next day.'
+    );
+  });
+
   test('notes overnight time landing on a day with no hours of its own', async () => {
     setup(scheduleWith(availableTime('fri', '22:00:00', '06:00:00')));
 
@@ -414,6 +504,26 @@ describe('ScheduleAvailabilityEditor component', () => {
     );
     // Days unaffected by the overnight window say nothing.
     expect(screen.queryByTestId('schedule-availability-spillover-sun')).toBeNull();
+  });
+
+  test('drops the spillover note once the receiving day has its own hours', async () => {
+    setup(scheduleWith(availableTime('fri', '22:00:00', '06:00:00')));
+
+    expect(screen.getByTestId('schedule-availability-spillover-sat')).toBeDefined();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('schedule-availability-switch-sat'));
+    });
+
+    expect(screen.queryByTestId('schedule-availability-spillover-sat')).toBeNull();
+  });
+
+  test('wraps the spillover note from Sunday around to Monday', async () => {
+    setup(scheduleWith(availableTime('sun', '20:00:00', '02:00:00')));
+
+    expect(screen.getByTestId('schedule-availability-spillover-mon')).toHaveTextContent(
+      'Still available until 2:00 AM, carried over from Sunday.'
+    );
   });
 
   test('steers a range ending at its start time toward all day', async () => {

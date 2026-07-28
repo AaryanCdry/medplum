@@ -112,9 +112,11 @@ export function nextDayOfWeek(day: DayOfWeek): DayOfWeek {
 }
 
 // Seconds since midnight, or undefined when the time is missing or malformed.
-// FHIR `time` has no timezone, so this is a plain offset into the day.
+// FHIR `time` has no timezone, so this is a plain offset into the day. Seconds
+// are optional here because the inputs emit `HH:mm`, and fractional seconds are
+// accepted because FHIR `time` permits them.
 function toSecondsOfDay(time: string): number | undefined {
-  const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(time);
+  const match = /^(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$/.exec(time);
   if (!match) {
     return undefined;
   }
