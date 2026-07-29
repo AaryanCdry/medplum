@@ -221,3 +221,26 @@ export const NoAvailability = (): JSX.Element => <EditorStory schedule={emptySch
 // Passing onCancel adds a Cancel button beside Save, for hosts that can be
 // dismissed. Without it, Save is the only action and spans the full width.
 export const WithCancel = (): JSX.Element => <EditorStory schedule={scheduleWithHours} onCancel={() => undefined} />;
+
+// Omitting the Schedule edits the service's own default hours, which every
+// calendar without an override follows. There is no override to switch on and
+// no default to reset to, so that chrome is absent.
+function ServiceDefaultStory(props: { readonly initial: HealthcareService }): JSX.Element {
+  const [edited, setEdited] = useState(props.initial);
+  return (
+    <Document>
+      <Title order={3} mb="md">
+        Default Availability for {edited.name}
+      </Title>
+      <ScheduleAvailabilityEditor service={edited} onSave={setEdited} />
+    </Document>
+  );
+}
+
+export const ServiceDefault = (): JSX.Element => <ServiceDefaultStory initial={service} />;
+
+// A service with no hours at all is unrestricted rather than unavailable, so
+// clearing the last day asks for that to be acknowledged before it saves.
+export const ServiceDefaultWithNoHours = (): JSX.Element => (
+  <ServiceDefaultStory initial={{ resourceType: 'HealthcareService', id: 'service-2', name: 'Walk-In Visit' }} />
+);

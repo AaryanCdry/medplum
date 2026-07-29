@@ -209,17 +209,18 @@ export function clearAvailabilityOverride(schedule: Schedule, service: Healthcar
  * Resolves the timezone used by scheduling in server priority order:
  * Schedule parameters, HealthcareService parameters, then the actor's standard
  * FHIR timezone extension.
- * @param schedule - Schedule whose parameters may define a timezone
+ * @param schedule - Schedule whose parameters may define a timezone. Omit to resolve the service's own timezone,
+ * as when the service default hours are being read on their own rather than through a particular calendar.
  * @param service - HealthcareService whose parameters may define a timezone
  * @param actor - Optional Schedule actor used as a timezone fallback
  * @returns The resolved IANA timezone identifier, if present
  */
 export function getSchedulingTimezone(
-  schedule: Schedule,
+  schedule: Schedule | undefined,
   service: HealthcareService,
   actor?: Resource
 ): string | undefined {
-  const scheduleTimezone = getServiceSchedulingParameters(schedule, service)
+  const scheduleTimezone = (schedule ? getServiceSchedulingParameters(schedule, service) : [])
     .flatMap((parameters) => getSubExtensions(parameters, 'timezone'))
     .map((subextension) => subextension.valueCode)
     .find(isDefined);

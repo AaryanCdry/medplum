@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   ActionIcon,
+  Alert,
   Anchor,
   Box,
   Button,
+  Checkbox,
   Divider,
   Group,
   Paper,
@@ -24,7 +26,7 @@ import {
 } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import { useResource } from '@medplum/react-hooks';
-import { IconMinus, IconPlus } from '@tabler/icons-react';
+import { IconAlertTriangle, IconMinus, IconPlus } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { useId, useState } from 'react';
 import type { DayAvailability, WeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
@@ -195,49 +197,77 @@ function DayRow(props: DayRowProps): JSX.Element {
   );
 }
 
-/**
- * Props for the ScheduleAvailabilityEditor component.
- * @param schedule - The Schedule holding the availability override. Must have exactly one actor, as scheduling requires.
- * @param service - The HealthcareService whose availability is being edited.
- * @param onSave - Called with the updated Schedule when the user saves. The caller performs the write, and may return a
- * Promise to keep the save button in its pending state until the write settles.
- * @param onCancel - Called when the user cancels. Omit to hide the cancel button, e.g. when the editor is inline on a page.
- */
-export interface ScheduleAvailabilityEditorProps {
-  readonly schedule: Schedule;
+interface CommonProps {
+  /** The HealthcareService whose availability is being edited. */
   readonly service: HealthcareService;
-  readonly onSave: (updatedSchedule: Schedule) => void | Promise<void>;
+  /** Called when the user cancels. Omit to hide the cancel button, e.g. when the editor is inline on a page. */
   readonly onCancel?: () => void;
 }
 
 /**
- * Edits the weekly availability a Schedule uses for one visit service type.
+ * Props for editing the availability override a Schedule holds for one service.
+ * @param schedule - The Schedule holding the availability override. Must have exactly one actor, as scheduling requires.
+ * @param onSave - Called with the updated Schedule when the user saves. The caller performs the write, and may return a
+ * Promise to keep the save button in its pending state until the write settles.
+ */
+export interface ScheduleOverrideEditorProps extends CommonProps {
+  readonly schedule: Schedule;
+  readonly onSave: (updatedSchedule: Schedule) => void | Promise<void>;
+}
+
+/**
+ * Props for editing a service's own default hours, in place of any one calendar's override.
+ * @param schedule - Omitted, which is what selects this mode.
+ * @param onSave - Called with the updated HealthcareService when the user saves. The caller performs the write, and may
+ * return a Promise to keep the save button in its pending state until the write settles.
+ */
+export interface ServiceDefaultEditorProps extends CommonProps {
+  readonly schedule?: undefined;
+  readonly onSave: (updatedService: HealthcareService) => void | Promise<void>;
+}
+
+/**
+ * Props for the ScheduleAvailabilityEditor component. Passing a Schedule edits that calendar's override of the
+ * service's hours; omitting it edits the service's own default hours, which every calendar without an override
+ * inherits. The two are the same weekly form over the same data, differing in where the hours are written.
+ */
+export type ScheduleAvailabilityEditorProps = ScheduleOverrideEditorProps | ServiceDefaultEditorProps;
+
+/**
+ * Edits weekly availability for one visit service type, either as a Schedule's
+ * override of the service hours or as the service's own default hours.
  *
  * This renders form content only. The caller supplies the container, so the
  * editor can live inline in a page, in a Modal, or in a Drawer.
- * @param props - Schedule, service, and save/cancel handlers
+ * @param props - Service, an optional Schedule selecting what is edited, and save/cancel handlers
  * @returns The availability editor form
  */
 export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProps): JSX.Element {
-  const { schedule, service, onSave, onCancel } = props;
+  const { schedule, service, onCancel } = props;
+  // Without a Schedule, the service's own hours are what is being edited, so
+  // there is no default to inherit from and no override to switch on.
+  const editingDefault = schedule === undefined;
   // Seed from the Schedule override when it has one, otherwise from the
   // service-level default, so the editor opens showing the hours currently in
   // effect rather than a blank week.
-  const [overriding, setOverriding] = useState(() => hasAvailabilityOverride(schedule, service));
+  const [overriding, setOverriding] = useState(() => (schedule ? hasAvailabilityOverride(schedule, service) : true));
   const [weekly, setWeekly] = useState<WeeklyAvailability>(() =>
-    toWeeklyAvailability(extractAvailability(schedule, service))
+    toWeeklyAvailability(schedule ? extractAvailability(schedule, service) : service.availableTime)
   );
   const [saving, setSaving] = useState(false);
   // The flash on an auto-moved end time is only visible, so the same change is
   // also announced.
   const [announcement, setAnnouncement] = useState('');
+  // Clearing every day off a service means the opposite of clearing one off a
+  // Schedule, so it is confirmed rather than blocked. See `emptyDefault`.
+  const [confirmedAlwaysAvailable, setConfirmedAlwaysAvailable] = useState(false);
   const reasonId = useId();
 
   // Scheduling falls back to the actor's timezone extension when neither the
   // Schedule nor the service parameters specify one, which is the most common
   // setup, so the actor has to be loaded to resolve the timezone the same way
   // the server does. Scheduling requires exactly one actor per Schedule.
-  const actor = useResource(schedule.actor[0]);
+  const actor = useResource(schedule?.actor[0]);
   const timezone = getSchedulingTimezone(schedule, service, actor);
   const serviceName = service.name ?? 'this visit service type';
 
@@ -245,10 +275,28 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // extension: [] }`, which fails FHIR constraint ext-1 on write. Require at
   // least one available day for custom hours; to disable a service on this
   // calendar, toggle it off in schedule settings instead.
-  const emptyOverride = overriding && !hasAnyAvailableDay(weekly);
+  const emptyOverride = !editingDefault && overriding && !hasAnyAvailableDay(weekly);
   const emptyOverrideReason =
     `Custom availability must include at least one available day. ` +
     `To stop scheduling ${serviceName} on this calendar, turn it off in schedule settings.`;
+
+  // A service with no `availableTime` at all is unrestricted rather than
+  // unavailable, since scheduling treats time as free unless a rule says
+  // otherwise. Clearing every day is therefore a real thing to want and the
+  // opposite of what it looks like, so it is saved only once acknowledged.
+  const emptyDefault = editingDefault && !hasAnyAvailableDay(weekly);
+  const unconfirmedEmptyDefault = emptyDefault && !confirmedAlwaysAvailable;
+  const blockedReason = emptyOverride
+    ? emptyOverrideReason
+    : `Confirm that ${serviceName} should be bookable at any time before saving.`;
+  const blocked = emptyOverride || unconfirmedEmptyDefault;
+
+  // Putting a day back makes the acknowledgement moot, and leaving it ticked
+  // would let a later clearing through without being seen.
+  function updateWeekly(next: (previous: WeeklyAvailability) => WeeklyAvailability): void {
+    setWeekly(next);
+    setConfirmedAlwaysAvailable(false);
+  }
 
   // Switching the override off puts the service default back in effect, so the
   // greyed out hours show that default rather than edits that no longer apply.
@@ -260,15 +308,26 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   }
 
   async function handleSave(): Promise<void> {
-    if (emptyOverride) {
+    if (blocked) {
       return;
     }
     setSaving(true);
     try {
-      const updated = overriding
-        ? applyAvailability(schedule, service, fromWeeklyAvailability(weekly))
-        : clearAvailabilityOverride(schedule, service);
-      await onSave(updated);
+      if (props.schedule) {
+        const updated = overriding
+          ? applyAvailability(props.schedule, service, fromWeeklyAvailability(weekly))
+          : clearAvailabilityOverride(props.schedule, service);
+        await props.onSave(updated);
+      } else {
+        const availableTime = fromWeeklyAvailability(weekly);
+        const updated: HealthcareService = { ...service, availableTime };
+        // An empty array would be dropped on write anyway, and reads as a field
+        // that is set rather than one that was cleared.
+        if (availableTime.length === 0) {
+          delete updated.availableTime;
+        }
+        await props.onSave(updated);
+      }
     } finally {
       setSaving(false);
     }
@@ -281,8 +340,8 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // anyone who cannot see the tooltip, and `handleSave` already refuses to run.
   const saveButton = (
     <Tooltip
-      label={emptyOverrideReason}
-      disabled={!emptyOverride}
+      label={blockedReason}
+      disabled={!blocked}
       multiline
       w={300}
       withArrow
@@ -294,9 +353,9 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
         onClick={handleSave}
         loading={saving}
         fullWidth={!onCancel}
-        data-disabled={emptyOverride || undefined}
-        aria-disabled={emptyOverride || undefined}
-        aria-describedby={emptyOverride ? reasonId : undefined}
+        data-disabled={blocked || undefined}
+        aria-disabled={blocked || undefined}
+        aria-describedby={blocked ? reasonId : undefined}
       >
         Save Settings
       </Button>
@@ -306,21 +365,27 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   return (
     <Stack gap="lg">
       <Text c="dimmed">
-        Customize your weekly working hours to override the general availability for {serviceName}.
+        {editingDefault
+          ? `Set the default weekly working hours for ${serviceName}. Every calendar without hours of its own follows these.`
+          : `Customize your weekly working hours to override the general availability for ${serviceName}.`}
       </Text>
       <Paper withBorder radius="md" p="xl">
-        <Group gap="sm" wrap="nowrap" h={ROW_HEIGHT}>
-          <Switch
-            checked={overriding}
-            onChange={(e) => toggleOverriding(e.currentTarget.checked)}
-            color="green.6"
-            withThumbIndicator={false}
-            aria-label={`Enable custom availability for ${serviceName}`}
-            data-testid="schedule-availability-enable"
-          />
-          <Text fw={500}>Enable custom availability for {serviceName}</Text>
-        </Group>
-        <Divider my="lg" />
+        {!editingDefault && (
+          <>
+            <Group gap="sm" wrap="nowrap" h={ROW_HEIGHT}>
+              <Switch
+                checked={overriding}
+                onChange={(e) => toggleOverriding(e.currentTarget.checked)}
+                color="green.6"
+                withThumbIndicator={false}
+                aria-label={`Enable custom availability for ${serviceName}`}
+                data-testid="schedule-availability-enable"
+              />
+              <Text fw={500}>Enable custom availability for {serviceName}</Text>
+            </Group>
+            <Divider my="lg" />
+          </>
+        )}
         <Stack gap="md" opacity={overriding ? 1 : 0.8}>
           {DAY_DISPLAY_ORDER.map((day) => (
             <DayRow
@@ -328,7 +393,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
               day={day}
               value={weekly[day]}
               disabled={!overriding}
-              onChange={(value) => setWeekly((prev) => ({ ...prev, [day]: value }))}
+              onChange={(value) => updateWeekly((prev) => ({ ...prev, [day]: value }))}
               onAnnounce={setAnnouncement}
             />
           ))}
@@ -337,19 +402,21 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
           {announcement}
         </VisuallyHidden>
         <Stack gap="sm" mt="xl">
-          <Group justify="flex-start">
-            <Anchor
-              component="button"
-              type="button"
-              onClick={() => setWeekly(toWeeklyAvailability(service.availableTime))}
-              disabled={!overriding}
-              c={overriding ? undefined : 'dimmed'}
-              underline={overriding ? 'hover' : 'never'}
-              data-testid="schedule-availability-reset"
-            >
-              Reset to default availability of {serviceName}
-            </Anchor>
-          </Group>
+          {!editingDefault && (
+            <Group justify="flex-start">
+              <Anchor
+                component="button"
+                type="button"
+                onClick={() => updateWeekly(() => toWeeklyAvailability(service.availableTime))}
+                disabled={!overriding}
+                c={overriding ? undefined : 'dimmed'}
+                underline={overriding ? 'hover' : 'never'}
+                data-testid="schedule-availability-reset"
+              >
+                Reset to default availability of {serviceName}
+              </Anchor>
+            </Group>
+          )}
           {timezone && (
             <Text c="dimmed" data-testid="schedule-availability-timezone">
               All times are in local {timezone} time zone.
@@ -357,9 +424,31 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
           )}
         </Stack>
       </Paper>
-      {emptyOverride && (
+      {emptyDefault && (
+        <Alert
+          color="yellow"
+          icon={<IconAlertTriangle size={18} stroke={1.8} />}
+          title="No hours means no restriction"
+          data-testid="schedule-availability-always-available"
+        >
+          <Stack gap="sm">
+            <Text size="sm">
+              Scheduling treats time as free unless hours say otherwise, so a service with no hours at all can be booked
+              around the clock. Saving now makes {serviceName} bookable at any time, rather than unavailable. To stop
+              booking it, remove the service from the calendars that offer it.
+            </Text>
+            <Checkbox
+              checked={confirmedAlwaysAvailable}
+              onChange={(e) => setConfirmedAlwaysAvailable(e.currentTarget.checked)}
+              label={`Make ${serviceName} bookable at any time`}
+              data-testid="schedule-availability-confirm-always-available"
+            />
+          </Stack>
+        </Alert>
+      )}
+      {blocked && (
         <VisuallyHidden id={reasonId} data-testid="schedule-availability-empty-override">
-          {emptyOverrideReason}
+          {blockedReason}
         </VisuallyHidden>
       )}
       {onCancel ? (

@@ -224,6 +224,13 @@ describe('getSchedulingTimezone', () => {
     expect(getSchedulingTimezone(scheduleWith(), serviceWithTimezone, actor)).toBe('America/Chicago');
   });
 
+  test('reads the service alone when there is no Schedule to ask first', () => {
+    // Editing a service's own default hours has no calendar in play, and so no
+    // actor to fall back to either.
+    expect(getSchedulingTimezone(undefined, serviceWithTimezone)).toBe('America/Chicago');
+    expect(getSchedulingTimezone(undefined, service)).toBeUndefined();
+  });
+
   test('prefers Schedule scheduling parameters over service and actor', () => {
     const schedule = scheduleWith();
     getServiceSchedulingParameters(schedule, service)[0].extension?.push({

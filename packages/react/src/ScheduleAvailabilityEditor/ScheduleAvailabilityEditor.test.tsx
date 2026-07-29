@@ -962,4 +962,141 @@ describe('ScheduleAvailabilityEditor component', () => {
     expect(screen.queryByTestId('schedule-availability-empty-override')).toBeNull();
     expect(screen.getByRole('button', { name: 'Save Settings' })).not.toHaveAttribute('aria-disabled');
   });
+
+  describe('editing the service default', () => {
+    function setupService(
+      svc: HealthcareService = serviceWithHours,
+      onSave = vi.fn()
+    ): { onSave: ReturnType<typeof vi.fn> } {
+      render(
+        <MedplumProvider medplum={new MockClient()}>
+          <ScheduleAvailabilityEditor service={svc} onSave={onSave} />
+        </MedplumProvider>
+      );
+      return { onSave };
+    }
+
+    test('opens on the hours the service itself holds', () => {
+      setupService();
+
+      expect(screen.getByTestId('schedule-availability-start-mon-0')).toHaveValue('8:00 AM');
+      expect(screen.getByTestId('schedule-availability-end-mon-0')).toHaveValue('4:00 PM');
+      expect(screen.getByTestId('schedule-availability-start-sat-0')).toHaveValue('12:00 AM');
+      expect(screen.getByTestId('schedule-availability-end-sat-0')).toHaveValue('12:00 AM');
+    });
+
+    test('drops the override switch and reset link, which have nothing to refer to', () => {
+      setupService();
+
+      expect(screen.queryByTestId('schedule-availability-enable')).toBeNull();
+      expect(screen.queryByTestId('schedule-availability-reset')).toBeNull();
+      // The days stay editable regardless, since there is no override to switch on first.
+      expect(screen.getByTestId('schedule-availability-start-mon-0')).toBeEnabled();
+    });
+
+    test('saves the hours onto the service rather than into an extension', async () => {
+      const { onSave } = setupService();
+
+      await pickTime('schedule-availability-end-mon-0', '5:00 PM');
+      await save();
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+      const updated: HealthcareService = onSave.mock.calls[0][0];
+      expect(updated.resourceType).toBe('HealthcareService');
+      expect(updated.availableTime).toEqual([
+        { daysOfWeek: ['mon'], availableStartTime: '08:00:00', availableEndTime: '17:00:00' },
+        { daysOfWeek: ['tue'], availableStartTime: '08:00:00', availableEndTime: '16:00:00' },
+        { daysOfWeek: ['sat'], allDay: true },
+      ]);
+      // The Schedule extension path is left alone entirely.
+      expect(updated.extension).toBeUndefined();
+    });
+
+    test('keeps the rest of the service intact', async () => {
+      const { onSave } = setupService({ ...serviceWithHours, comment: 'Front desk only', active: true });
+
+      await save();
+
+      const updated: HealthcareService = onSave.mock.calls[0][0];
+      expect(updated.comment).toBe('Front desk only');
+      expect(updated.active).toBe(true);
+      expect(updated.id).toBe('service-1');
+    });
+
+    test('will not save every day off until the round-the-clock result is acknowledged', async () => {
+      const { onSave } = setupService();
+
+      for (const day of ['mon', 'tue', 'sat']) {
+        await act(async () => {
+          fireEvent.click(screen.getByTestId(`schedule-availability-switch-${day}`));
+        });
+      }
+
+      // Unlike an empty override, this is allowed, so the warning explains what
+      // it means rather than refusing outright.
+      const warning = screen.getByTestId('schedule-availability-always-available');
+      expect(warning).toHaveTextContent('can be booked around the clock');
+      await save();
+      expect(onSave).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('schedule-availability-confirm-always-available'));
+      });
+      await save();
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+      // Absent rather than empty: an empty array reads as hours that were set.
+      expect(onSave.mock.calls[0][0]).not.toHaveProperty('availableTime');
+    });
+
+    test('asks again when the days are cleared a second time', async () => {
+      const { onSave } = setupService();
+
+      for (const day of ['mon', 'tue', 'sat']) {
+        await act(async () => {
+          fireEvent.click(screen.getByTestId(`schedule-availability-switch-${day}`));
+        });
+      }
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('schedule-availability-confirm-always-available'));
+      });
+
+      // Putting a day back settles the question, so the acknowledgement should
+      // not carry over to whatever is cleared next.
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('schedule-availability-switch-mon'));
+      });
+      expect(screen.queryByTestId('schedule-availability-always-available')).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('schedule-availability-switch-mon'));
+      });
+      expect(screen.getByTestId('schedule-availability-confirm-always-available')).not.toBeChecked();
+      await save();
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    test('resolves the timezone from the service, with no calendar to ask first', () => {
+      setupService({
+        ...serviceWithHours,
+        extension: [
+          {
+            url: SchedulingParametersURI,
+            extension: [{ url: 'timezone', valueCode: 'America/Chicago' }],
+          },
+        ],
+      });
+
+      expect(screen.getByTestId('schedule-availability-timezone')).toHaveTextContent('America/Chicago');
+    });
+
+    test('starts from a blank week when the service has no hours', () => {
+      setupService(service);
+
+      expect(screen.getAllByText('Unavailable')).toHaveLength(7);
+      // Nothing has been changed yet, so the warning is about what saving would
+      // do, and it is present from the start.
+      expect(screen.getByTestId('schedule-availability-always-available')).toBeInTheDocument();
+    });
+  });
 });
