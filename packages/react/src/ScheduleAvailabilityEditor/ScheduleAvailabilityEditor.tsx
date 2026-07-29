@@ -1,68 +1,199 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import {
-  Badge,
+  ActionIcon,
+  Anchor,
   Box,
   Button,
-  Checkbox,
   Divider,
   Group,
   Paper,
-  ScrollArea,
   Stack,
   Switch,
   Text,
-  TextInput,
+  Tooltip,
+  VisuallyHidden,
 } from '@mantine/core';
 import type { DayOfWeek } from '@medplum/core';
 import {
   applyAvailability,
   clearAvailabilityOverride,
-  DAYS_OF_WEEK,
   extractAvailability,
-  formatWallTime,
   getSchedulingTimezone,
   hasAvailabilityOverride,
 } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import { useResource } from '@medplum/react-hooks';
+import { IconMinus, IconPlus } from '@tabler/icons-react';
 import type { JSX } from 'react';
-import { useState } from 'react';
-import { ArrayAddButton } from '../buttons/ArrayAddButton';
-import { ArrayRemoveButton } from '../buttons/ArrayRemoveButton';
-import type { TimeRange, WeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
+import { useId, useState } from 'react';
+import type { DayAvailability, WeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
 import {
+  canAddRange,
+  DAY_DISPLAY_ORDER,
   DAY_LABELS,
+  DEFAULT_RANGE,
+  formatMinutesOfDay,
   fromWeeklyAvailability,
-  getSpilloverByDay,
   hasAnyAvailableDay,
-  isOvernightRange,
-  nextDayOfWeek,
+  MINUTES_PER_DAY,
+  nextRange,
   toWeeklyAvailability,
-  validateWeeklyAvailability,
 } from './ScheduleAvailabilityEditor.utils';
+import { TimeSelect } from './TimeSelect';
 
-const DEFAULT_RANGE: TimeRange = { start: '09:00:00', end: '17:00:00' };
+// Width of the day name column, so every row's hours start on the same edge.
+const DAY_COLUMN_WIDTH = 168;
+// A single row's height, used to keep a day with no hours the same height as one
+// with a block of them.
+const ROW_HEIGHT = 36;
+// Width of an action slot. Reserved whether or not it holds a button, so the
+// rows above and below stay aligned.
+const ACTION_WIDTH = 28;
 
-// A cleared `type="time"` input reports an empty string. Keep it empty rather
-// than appending seconds, so validation reports the time as missing instead of
-// treating a malformed ":00" as a real value.
-function toTimeOfDay(value: string): string {
-  return value ? `${value}:00` : '';
+// A disabled Switch greys out its track, which reads as "off" rather than "not
+// editable". Days keep their colour while the whole editor is switched off.
+const DISABLED_ON_SWITCH_STYLES = {
+  track: { backgroundColor: 'var(--mantine-color-green-6)', borderColor: 'transparent' },
+};
+
+interface DayRowProps {
+  readonly day: DayOfWeek;
+  readonly value: DayAvailability;
+  readonly disabled: boolean;
+  readonly onChange: (value: DayAvailability) => void;
+  readonly onAnnounce: (message: string) => void;
 }
 
-// Internal draft entry, adding a stable id so range rows keep their identity as
-// they are added/removed.
-interface DraftRange extends TimeRange {
-  readonly id: number;
-}
+function DayRow(props: DayRowProps): JSX.Element {
+  const { day, value, disabled, onChange, onAnnounce } = props;
+  const { enabled, ranges } = value;
+  const label = DAY_LABELS[day];
+  // Identifies the end input to flash, and changes on every move so that
+  // repeated moves each get their own flash.
+  const [movedEnd, setMovedEnd] = useState<{ index: number; key: number }>();
 
-interface DayDraft {
-  allDay: boolean;
-  ranges: DraftRange[];
-}
+  // Each block is bounded by its neighbours, so the times on offer are only ever
+  // the ones still free that day. The last block may run to midnight.
+  function boundsAfter(index: number): number {
+    return index === ranges.length - 1 ? MINUTES_PER_DAY : ranges[index + 1].start;
+  }
 
-type DraftAvailability = Record<DayOfWeek, DayDraft>;
+  // A start may be set anywhere still free that day, even past its own end, so
+  // that a later block can be opened without editing it twice. When that
+  // happens the end moves an hour out from the new start. The move is flashed
+  // for anyone watching and announced for anyone not.
+  function setStart(index: number, start: number): void {
+    const range = ranges[index];
+    const end = start >= range.end ? Math.min(start + 60, boundsAfter(index)) : range.end;
+    if (end !== range.end) {
+      setMovedEnd((previous) => ({ index, key: (previous?.key ?? 0) + 1 }));
+      onAnnounce(`${label} block ${index + 1} end time changed to ${formatMinutesOfDay(end)}.`);
+    }
+    onChange({ ...value, ranges: ranges.with(index, { start, end }) });
+  }
+
+  function setEnd(index: number, end: number): void {
+    onChange({ ...value, ranges: ranges.with(index, { ...ranges[index], end }) });
+  }
+
+  return (
+    <Group align="flex-start" gap="md" wrap="nowrap">
+      <Group gap="sm" wrap="nowrap" w={DAY_COLUMN_WIDTH} h={ROW_HEIGHT} style={{ flexShrink: 0 }}>
+        <Switch
+          checked={enabled}
+          onChange={(e) => {
+            const checked = e.currentTarget.checked;
+            onChange({
+              enabled: checked,
+              ranges: checked && ranges.length === 0 ? [{ ...DEFAULT_RANGE }] : ranges,
+            });
+          }}
+          color="green.6"
+          withThumbIndicator={false}
+          disabled={disabled}
+          styles={disabled && enabled ? DISABLED_ON_SWITCH_STYLES : undefined}
+          aria-label={`Available on ${label}`}
+          data-testid={`schedule-availability-switch-${day}`}
+        />
+        <Text fw={500}>{label}</Text>
+      </Group>
+      {enabled ? (
+        <Stack gap="xs">
+          {ranges.map((range, index) => {
+            const last = index === ranges.length - 1;
+            const canAdd = canAddRange(ranges);
+            return (
+              // Blocks are kept sorted and non-overlapping, so a row's position
+              // in the day is a stable enough identity for it.
+              <Group key={index} gap="xs" wrap="nowrap">
+                <TimeSelect
+                  value={range.start}
+                  min={index === 0 ? 0 : ranges[index - 1].end}
+                  // Bounds are exclusive by a minute rather than by a whole
+                  // step, so a neighbour stored off the interval still leaves
+                  // the usual times on offer here.
+                  max={boundsAfter(index) - 1}
+                  onChange={(start) => setStart(index, start)}
+                  disabled={disabled}
+                  label={`${label} block ${index + 1} start time`}
+                  testId={`schedule-availability-start-${day}-${index}`}
+                />
+                <Text c="dimmed" px={4}>
+                  to
+                </Text>
+                <TimeSelect
+                  value={range.end}
+                  min={range.start + 1}
+                  max={boundsAfter(index)}
+                  onChange={(end) => setEnd(index, end)}
+                  disabled={disabled}
+                  label={`${label} block ${index + 1} end time`}
+                  testId={`schedule-availability-end-${day}-${index}`}
+                  flashKey={movedEnd?.index === index ? movedEnd.key : undefined}
+                />
+                <Box w={ACTION_WIDTH} style={{ flexShrink: 0 }}>
+                  {last && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      radius="xl"
+                      onClick={() => onChange({ ...value, ranges: [...ranges, nextRange(ranges)] })}
+                      disabled={disabled || !canAdd}
+                      aria-label={`Add another block of hours on ${label}`}
+                      data-testid={`schedule-availability-add-${day}`}
+                    >
+                      <IconPlus size={16} stroke={1.8} />
+                    </ActionIcon>
+                  )}
+                </Box>
+                <Box w={ACTION_WIDTH} style={{ flexShrink: 0 }}>
+                  {ranges.length > 1 && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      radius="xl"
+                      onClick={() => onChange({ ...value, ranges: ranges.toSpliced(index, 1) })}
+                      disabled={disabled}
+                      aria-label={`Remove ${label} block ${index + 1}`}
+                      data-testid={`schedule-availability-remove-${day}-${index}`}
+                    >
+                      <IconMinus size={16} stroke={1.8} />
+                    </ActionIcon>
+                  )}
+                </Box>
+              </Group>
+            );
+          })}
+        </Stack>
+      ) : (
+        <Text c="dimmed" h={ROW_HEIGHT} lh={`${ROW_HEIGHT}px`}>
+          Unavailable
+        </Text>
+      )}
+    </Group>
+  );
+}
 
 /**
  * Props for the ScheduleAvailabilityEditor component.
@@ -79,48 +210,11 @@ export interface ScheduleAvailabilityEditorProps {
   readonly onCancel?: () => void;
 }
 
-function toDraft(weekly: WeeklyAvailability): DraftAvailability {
-  const draft = {} as DraftAvailability;
-  let id = 0;
-  for (const day of DAYS_OF_WEEK) {
-    draft[day] = {
-      allDay: weekly[day].allDay,
-      ranges: weekly[day].ranges.map((range) => ({ ...range, id: id++ })),
-    };
-  }
-  return draft;
-}
-
-// Row keys only have to be unique among the rows currently rendered, so deriving
-// the next one from the draft avoids threading a mutable counter through render.
-function nextRangeId(draft: DraftAvailability): number {
-  let max = -1;
-  for (const day of DAYS_OF_WEEK) {
-    for (const range of draft[day].ranges) {
-      max = Math.max(max, range.id);
-    }
-  }
-  return max + 1;
-}
-
-function toWeekly(draft: DraftAvailability): WeeklyAvailability {
-  const weekly = {} as WeeklyAvailability;
-  for (const day of DAYS_OF_WEEK) {
-    weekly[day] = {
-      allDay: draft[day].allDay,
-      ranges: draft[day].ranges.map((range) => ({ start: range.start, end: range.end })),
-    };
-  }
-  return weekly;
-}
-
 /**
- * Edits the weekly availability a Schedule uses for one HealthcareService.
+ * Edits the weekly availability a Schedule uses for one visit service type.
  *
  * This renders form content only. The caller supplies the container, so the
- * editor can live inline in a page, in a Drawer, or in a Modal. When the
- * container has a constrained height, the day list scrolls and the action bar
- * stays pinned to the bottom.
+ * editor can live inline in a page, in a Modal, or in a Drawer.
  * @param props - Schedule, service, and save/cancel handlers
  * @returns The availability editor form
  */
@@ -130,10 +224,14 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // service-level default, so the editor opens showing the hours currently in
   // effect rather than a blank week.
   const [overriding, setOverriding] = useState(() => hasAvailabilityOverride(schedule, service));
-  const [draft, setDraft] = useState<DraftAvailability>(() =>
-    toDraft(toWeeklyAvailability(extractAvailability(schedule, service)))
+  const [weekly, setWeekly] = useState<WeeklyAvailability>(() =>
+    toWeeklyAvailability(extractAvailability(schedule, service))
   );
   const [saving, setSaving] = useState(false);
+  // The flash on an auto-moved end time is only visible, so the same change is
+  // also announced.
+  const [announcement, setAnnouncement] = useState('');
+  const reasonId = useId();
 
   // Scheduling falls back to the actor's timezone extension when neither the
   // Schedule nor the service parameters specify one, which is the most common
@@ -141,61 +239,28 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // the server does. Scheduling requires exactly one actor per Schedule.
   const actor = useResource(schedule.actor[0]);
   const timezone = getSchedulingTimezone(schedule, service, actor);
-  const weekly = toWeekly(draft);
-  const validation = validateWeeklyAvailability(weekly);
-  const spillover = getSpilloverByDay(weekly);
+  const serviceName = service.name ?? 'this visit service type';
+
   // An override with zero available days serializes to `{ url: 'availability',
   // extension: [] }`, which fails FHIR constraint ext-1 on write. Require at
   // least one available day for custom hours; to disable a service on this
   // calendar, toggle it off in schedule settings instead.
   const emptyOverride = overriding && !hasAnyAvailableDay(weekly);
-  const canSave = validation.valid && !emptyOverride;
+  const emptyOverrideReason =
+    `Custom availability must include at least one available day. ` +
+    `To stop scheduling ${serviceName} on this calendar, turn it off in schedule settings.`;
 
-  // Any manual edit diverges from the service default, so mark the draft as an override.
-  function setDay(day: DayOfWeek, value: DayDraft): void {
-    setOverriding(true);
-    setDraft((prev) => ({ ...prev, [day]: value }));
-  }
-
-  // Discard the override and restore the inherited service-default hours.
-  function resetToServiceDefault(): void {
-    setDraft(toDraft(toWeeklyAvailability(service.availableTime)));
-    setOverriding(false);
-  }
-
-  function toggleDay(day: DayOfWeek, available: boolean): void {
-    if (available) {
-      setDay(day, { allDay: false, ranges: [{ ...DEFAULT_RANGE, id: nextRangeId(draft) }] });
-    } else {
-      setDay(day, { allDay: false, ranges: [] });
+  // Switching the override off puts the service default back in effect, so the
+  // greyed out hours show that default rather than edits that no longer apply.
+  function toggleOverriding(next: boolean): void {
+    setOverriding(next);
+    if (!next) {
+      setWeekly(toWeeklyAvailability(service.availableTime));
     }
-  }
-
-  function toggleAllDay(day: DayOfWeek, allDay: boolean): void {
-    if (allDay) {
-      setDay(day, { allDay: true, ranges: [] });
-    } else {
-      setDay(day, { allDay: false, ranges: [{ ...DEFAULT_RANGE, id: nextRangeId(draft) }] });
-    }
-  }
-
-  function addRange(day: DayOfWeek): void {
-    setDay(day, { ...draft[day], ranges: [...draft[day].ranges, { ...DEFAULT_RANGE, id: nextRangeId(draft) }] });
-  }
-
-  function removeRange(day: DayOfWeek, index: number): void {
-    setDay(day, { ...draft[day], ranges: draft[day].ranges.toSpliced(index, 1) });
-  }
-
-  function updateRange(day: DayOfWeek, index: number, patch: Partial<TimeRange>): void {
-    setDay(day, {
-      ...draft[day],
-      ranges: draft[day].ranges.with(index, { ...draft[day].ranges[index], ...patch }),
-    });
   }
 
   async function handleSave(): Promise<void> {
-    if (!canSave) {
+    if (emptyOverride) {
       return;
     }
     setSaving(true);
@@ -209,171 +274,104 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
     }
   }
 
+  // A `disabled` button emits no pointer events and drops out of the tab order,
+  // which would leave the reason it is disabled out of reach in a tooltip.
+  // Marking it disabled without the attribute keeps it hoverable and focusable:
+  // `aria-disabled` carries the state, the description carries the reason for
+  // anyone who cannot see the tooltip, and `handleSave` already refuses to run.
+  const saveButton = (
+    <Tooltip
+      label={emptyOverrideReason}
+      disabled={!emptyOverride}
+      multiline
+      w={300}
+      withArrow
+      position="top"
+      // Reaching the button by keyboard should explain it too, not just hovering.
+      events={{ hover: true, focus: true, touch: true }}
+    >
+      <Button
+        onClick={handleSave}
+        loading={saving}
+        fullWidth={!onCancel}
+        data-disabled={emptyOverride || undefined}
+        aria-disabled={emptyOverride || undefined}
+        aria-describedby={emptyOverride ? reasonId : undefined}
+      >
+        Save Settings
+      </Button>
+    </Tooltip>
+  );
+
   return (
-    <Box style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <ScrollArea style={{ flex: 1 }} px="lg" py="md">
-        <Stack gap="sm">
-          <Group justify="space-between" wrap="nowrap" align="center">
-            {overriding ? (
-              <Badge color="blue" variant="light" data-testid="schedule-availability-override-badge">
-                Custom hours
-              </Badge>
-            ) : (
-              <Badge color="gray" variant="light" data-testid="schedule-availability-default-badge">
-                Using service default
-              </Badge>
-            )}
-            <Button
-              variant="subtle"
-              size="compact-sm"
-              onClick={resetToServiceDefault}
+    <Stack gap="lg">
+      <Text c="dimmed">
+        Customize your weekly working hours to override the general availability for {serviceName}.
+      </Text>
+      <Paper withBorder radius="md" p="xl">
+        <Group gap="sm" wrap="nowrap" h={ROW_HEIGHT}>
+          <Switch
+            checked={overriding}
+            onChange={(e) => toggleOverriding(e.currentTarget.checked)}
+            color="green.6"
+            withThumbIndicator={false}
+            aria-label={`Enable custom availability for ${serviceName}`}
+            data-testid="schedule-availability-enable"
+          />
+          <Text fw={500}>Enable custom availability for {serviceName}</Text>
+        </Group>
+        <Divider my="lg" />
+        <Stack gap="md" opacity={overriding ? 1 : 0.8}>
+          {DAY_DISPLAY_ORDER.map((day) => (
+            <DayRow
+              key={day}
+              day={day}
+              value={weekly[day]}
               disabled={!overriding}
+              onChange={(value) => setWeekly((prev) => ({ ...prev, [day]: value }))}
+              onAnnounce={setAnnouncement}
+            />
+          ))}
+        </Stack>
+        <VisuallyHidden role="status" aria-live="polite" data-testid="schedule-availability-announcement">
+          {announcement}
+        </VisuallyHidden>
+        <Stack gap="sm" mt="xl">
+          <Group justify="flex-start">
+            <Anchor
+              component="button"
+              type="button"
+              onClick={() => setWeekly(toWeeklyAvailability(service.availableTime))}
+              disabled={!overriding}
+              c={overriding ? undefined : 'dimmed'}
+              underline={overriding ? 'hover' : 'never'}
               data-testid="schedule-availability-reset"
             >
-              Reset to service default
-            </Button>
+              Reset to default availability of {serviceName}
+            </Anchor>
           </Group>
-          <Text size="xs" c="dimmed">
-            {overriding
-              ? 'These hours override the default hours defined on the service.'
-              : 'This schedule follows the default hours defined on the service. Editing any day creates an override.'}
-          </Text>
           {timezone && (
-            <Text size="xs" c="dimmed" data-testid="schedule-availability-timezone">
-              Hours are interpreted in the {timezone} timezone.
+            <Text c="dimmed" data-testid="schedule-availability-timezone">
+              All times are in local {timezone} time zone.
             </Text>
           )}
-          {DAYS_OF_WEEK.map((day) => {
-            const { allDay, ranges } = draft[day];
-            const available = allDay || ranges.length > 0;
-            return (
-              <Paper key={day} withBorder radius="md" p="md" data-testid={`schedule-availability-card-${day}`}>
-                <Group justify="space-between" wrap="nowrap" align="center">
-                  <Text fw={600} size="sm">
-                    {DAY_LABELS[day]}
-                  </Text>
-                  <Switch
-                    size="sm"
-                    checked={available}
-                    onChange={(e) => toggleDay(day, e.currentTarget.checked)}
-                    labelPosition="left"
-                    label={
-                      <Text size="sm" c={available ? undefined : 'dimmed'}>
-                        {available ? 'Available' : 'Unavailable'}
-                      </Text>
-                    }
-                    aria-label={`Toggle availability for ${DAY_LABELS[day]}`}
-                    data-testid={`schedule-availability-switch-${day}`}
-                  />
-                </Group>
-                {!available &&
-                  spillover[day]?.map((spill) => (
-                    <Text
-                      key={`${spill.from}-${spill.end}`}
-                      size="xs"
-                      c="dimmed"
-                      mt="xs"
-                      data-testid={`schedule-availability-spillover-${day}`}
-                    >
-                      Still available until {formatWallTime(spill.end)}, carried over from {DAY_LABELS[spill.from]}.
-                    </Text>
-                  ))}
-                {available && (
-                  <>
-                    <Divider my="sm" />
-                    <Checkbox
-                      size="sm"
-                      checked={allDay}
-                      onChange={(e) => toggleAllDay(day, e.currentTarget.checked)}
-                      label="Available all day (24 hours)"
-                      data-testid={`schedule-availability-all-day-${day}`}
-                    />
-                  </>
-                )}
-                {available && !allDay && (
-                  <Stack gap="xs" mt="sm">
-                    {ranges.map((range, index) => (
-                      <Box key={range.id}>
-                        <Group gap="xs" wrap="nowrap" align="center">
-                          <TextInput
-                            type="time"
-                            aria-label={`${DAY_LABELS[day]} start time ${index + 1}`}
-                            data-testid={`schedule-availability-start-${day}-${index}`}
-                            value={range.start.slice(0, 5)}
-                            onChange={(e) => updateRange(day, index, { start: toTimeOfDay(e.currentTarget.value) })}
-                            style={{ flexGrow: 1 }}
-                          />
-                          <Text size="sm" c="dimmed">
-                            to
-                          </Text>
-                          <TextInput
-                            type="time"
-                            aria-label={`${DAY_LABELS[day]} end time ${index + 1}`}
-                            data-testid={`schedule-availability-end-${day}-${index}`}
-                            value={range.end.slice(0, 5)}
-                            onChange={(e) => updateRange(day, index, { end: toTimeOfDay(e.currentTarget.value) })}
-                            style={{ flexGrow: 1 }}
-                          />
-                          <ArrayRemoveButton
-                            propertyDisplayName="hours"
-                            testId={`schedule-availability-remove-${day}-${index}`}
-                            onClick={() => removeRange(day, index)}
-                          />
-                        </Group>
-                        {isOvernightRange(range) && (
-                          <Text
-                            size="xs"
-                            c="dimmed"
-                            mt={4}
-                            data-testid={`schedule-availability-overnight-${day}-${index}`}
-                          >
-                            Ends {formatWallTime(range.end)} on {DAY_LABELS[nextDayOfWeek(day)]}, the next day.
-                          </Text>
-                        )}
-                      </Box>
-                    ))}
-                    <Box>
-                      <ArrayAddButton
-                        propertyDisplayName="hours"
-                        testId={`schedule-availability-add-${day}`}
-                        onClick={() => addRange(day)}
-                      />
-                    </Box>
-                    {validation.errors[day] && (
-                      <Text size="xs" c="red" data-testid={`schedule-availability-error-${day}`}>
-                        {validation.errors[day]}
-                      </Text>
-                    )}
-                    {validation.warnings[day] && (
-                      <Text size="xs" c="orange" data-testid={`schedule-availability-warning-${day}`}>
-                        {validation.warnings[day]}
-                      </Text>
-                    )}
-                  </Stack>
-                )}
-              </Paper>
-            );
-          })}
         </Stack>
-      </ScrollArea>
-      <Box px="lg" py="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
-        {emptyOverride && (
-          <Text size="xs" c="red" mb="sm" data-testid="schedule-availability-empty-override">
-            Custom hours must include at least one available day. To disable this service on the calendar, turn it off
-            in schedule settings.
-          </Text>
-        )}
-        <Group justify="flex-end">
-          {onCancel && (
-            <Button variant="default" onClick={onCancel}>
-              Cancel
-            </Button>
-          )}
-          <Button onClick={handleSave} loading={saving} disabled={!canSave}>
-            Save
+      </Paper>
+      {emptyOverride && (
+        <VisuallyHidden id={reasonId} data-testid="schedule-availability-empty-override">
+          {emptyOverrideReason}
+        </VisuallyHidden>
+      )}
+      {onCancel ? (
+        <Group grow>
+          <Button variant="default" onClick={onCancel}>
+            Cancel
           </Button>
+          {saveButton}
         </Group>
-      </Box>
-    </Box>
+      ) : (
+        saveButton
+      )}
+    </Stack>
   );
 }

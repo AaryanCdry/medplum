@@ -1,6 +1,19 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import { Alert, Badge, Box, Button, Drawer, Group, Loader, Stack, Switch, Text, Title, Tooltip } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Loader,
+  Modal,
+  ScrollArea,
+  Stack,
+  Switch,
+  Text,
+  Title,
+  Tooltip,
+} from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import type { WithId } from '@medplum/core';
 import {
@@ -39,10 +52,10 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  // The Drawer stays mounted so Mantine can animate open/close; only
+  // The Modal stays mounted so Mantine can animate open/close; only
   // `editorOpened` toggles. `editingService` selects which service the editor
   // edits and is only cleared after the close animation via
-  // `onExitTransitionEnd`, so the contents stay put while the drawer slides out.
+  // `onExitTransitionEnd`, so the contents stay put while the modal fades out.
   const [editingService, setEditingService] = useState<WithId<HealthcareService>>();
   const [editorOpened, editorHandlers] = useDisclosure(false);
 
@@ -99,21 +112,21 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
   return (
     <Stack gap="lg">
       <Stack gap="0">
-        <Title order={3}>Appointment Types</Title>
+        <Title order={3}>Visit Service Types</Title>
         <Text fs="italic" c="dimmed">
-          Choose what appointment types can be scheduled on this calendar. Learn more about{' '}
+          Choose what visit service types can be scheduled on this calendar. Learn more about{' '}
           <DocsLink path="scheduling">configuring Scheduling</DocsLink>.
         </Text>
       </Stack>
       <OperationOutcomeAlert outcome={servicesOutcome} />
       {!services?.length && (
         <Alert color="red" variant="outline">
-          No HealthcareServices found.
+          No visit service types found.
         </Alert>
       )}
       {(services?.length ?? 0) >= MAX_PAGE_SIZE && (
         <Alert color="yellow" variant="outline" icon={<IconAlertCircle />}>
-          HealthcareService page size reached; some rows may not have been fetched.
+          Visit service type page size reached; some rows may not have been fetched.
         </Alert>
       )}
       <Stack gap="sm">
@@ -124,7 +137,7 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
           return (
             <Group key={service.id} justify="space-between">
               <Tooltip
-                label={'This HealthcareService does not have a SchedulingParameters extension'}
+                label={'This visit service type does not have a SchedulingParameters extension'}
                 disabled={schedulable}
                 position="right"
                 refProp="rootRef"
@@ -168,36 +181,19 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
           );
         })}
       </Stack>
-      <Drawer
+      <Modal
         opened={editorOpened}
         onClose={editorHandlers.close}
         onExitTransitionEnd={() => setEditingService(undefined)}
-        position="right"
-        size="md"
-        padding={0}
+        size="xl"
+        centered
+        scrollAreaComponent={ScrollArea.Autosize}
         overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}
-        transitionProps={{ transition: 'slide-left', duration: 250, timingFunction: 'ease' }}
         title={
-          <Box>
-            <Text fw={600} size="lg">
-              Weekly availability
-            </Text>
-            {editingService?.name && (
-              <Text size="sm" c="dimmed">
-                {editingService.name}
-              </Text>
-            )}
-          </Box>
+          <Text fw={600} size="lg">
+            Weekly Availability for {editingService?.name ?? 'this visit service type'}
+          </Text>
         }
-        styles={{
-          content: { display: 'flex', flexDirection: 'column' },
-          header: {
-            paddingInline: 'var(--mantine-spacing-lg)',
-            paddingBlock: 'var(--mantine-spacing-md)',
-            borderBottom: '1px solid var(--mantine-color-default-border)',
-          },
-          body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 0 },
-        }}
       >
         {editingService && (
           <ScheduleAvailabilityEditor
@@ -212,7 +208,7 @@ export function ScheduleSettings(props: { schedule: Schedule }): JSX.Element | n
             }}
           />
         )}
-      </Drawer>
+      </Modal>
       <Group justify="flex-end">
         <Button variant="outline" disabled={saving} component={MedplumLink} to={`/Calendar/Schedule/${schedule.id}`}>
           {dirty ? 'Cancel' : 'Back'}
