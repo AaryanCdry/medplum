@@ -216,8 +216,8 @@ export const InheritingServiceDefault = (): JSX.Element => <EditorStory schedule
 // Stored hours that run past midnight, split across days on mount.
 export const OvernightHours = (): JSX.Element => <EditorStory schedule={overnightSchedule} />;
 
-// Stored hours that fall between the times the pickers offer, shown as stored
-// and marked.
+// Stored hours that fall between the times the pickers list. They are shown as
+// stored, listed as the current selection, and can be typed back in full.
 export const OffIntervalHours = (): JSX.Element => <EditorStory schedule={offIntervalSchedule} />;
 
 // Neither the Schedule nor the service says anything about hours, so there is
@@ -254,7 +254,8 @@ function ServiceDefaultStory(props: { readonly initial: HealthcareService }): JS
 export const ServiceDefault = (): JSX.Element => <ServiceDefaultStory initial={service} />;
 
 // A service with no hours at all is unrestricted rather than unavailable, so
-// clearing the last day asks for that to be acknowledged before it saves.
+// this week saves as a service bookable at any time. Rare enough, and harmless
+// enough to the data, that nothing in the form says so today.
 export const ServiceDefaultWithNoHours = (): JSX.Element => (
   <ServiceDefaultStory initial={{ resourceType: 'HealthcareService', id: 'service-2', name: 'Walk-In Visit' }} />
 );

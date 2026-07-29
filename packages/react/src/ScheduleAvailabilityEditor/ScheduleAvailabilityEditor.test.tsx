@@ -19,13 +19,14 @@ import {
   formatMinutesOfDay,
   fromWeeklyAvailability,
   hasAnyAvailableDay,
-  isOnTimeStep,
   MINUTES_PER_DAY,
   nearestOption,
   nextDayOfWeek,
   nextRange,
+  TIME_STEP_MINUTES,
   timeOptions,
   toWeeklyAvailability,
+  typedTimes,
 } from './ScheduleAvailabilityEditor.utils';
 
 const service: HealthcareService = {
@@ -236,27 +237,44 @@ describe('ScheduleAvailabilityEditor utils', () => {
     expect(formatMinutesOfDay(1020)).toBe('5:00 PM');
   });
 
-  test('timeOptions steps by five minutes between the bounds', () => {
-    expect(timeOptions(540, 555)).toEqual([540, 545, 550, 555]);
-    expect(timeOptions(0, MINUTES_PER_DAY)).toHaveLength(289);
+  test('timeOptions steps by a quarter hour between the bounds', () => {
+    expect(timeOptions(540, 585)).toEqual([540, 555, 570, 585]);
+    expect(timeOptions(0, MINUTES_PER_DAY)).toHaveLength(97);
     expect(timeOptions(1020, 1020)).toEqual([1020]);
   });
 
   test('timeOptions measures the interval from midnight, not from the bound', () => {
     // A bound off the interval narrows the list without shifting the times in
-    // it, so a block stored as 9:07 still offers 9:10 rather than 9:12.
-    expect(timeOptions(547, 570)).toEqual([550, 555, 560, 565, 570]);
+    // it, so a block stored as 9:07 still offers 9:15 rather than 9:22.
+    expect(timeOptions(547, 600)).toEqual([555, 570, 585, 600]);
     // Midnight stays reachable, which it would not be by stepping from 552.
     expect(timeOptions(552, MINUTES_PER_DAY)).toContain(MINUTES_PER_DAY);
   });
 
-  test('isOnTimeStep marks the times the pickers can offer', () => {
-    expect(isOnTimeStep(540)).toBe(true);
-    expect(isOnTimeStep(547)).toBe(false);
+  test('timeOptions offers a time off the interval when asked to', () => {
+    // The current value and a time typed in full are both worth listing even
+    // though the interval would skip them.
+    expect(timeOptions(540, 600, [547])).toEqual([540, 547, 555, 570, 585, 600]);
+    // Listing one is not a way around the bounds of the row.
+    expect(timeOptions(540, 600, [10, 700])).toEqual([540, 555, 570, 585, 600]);
+    // Nor a way to list it twice.
+    expect(timeOptions(540, 600, [555])).toEqual([540, 555, 570, 585, 600]);
+  });
+
+  test('typedTimes reads a time typed in full, and nothing less', () => {
+    // Both readings, since nothing said which.
+    expect(typedTimes('303').map(formatMinutesOfDay)).toEqual(['3:03 AM', '3:03 PM']);
+    expect(typedTimes('3:03 pm').map(formatMinutesOfDay)).toEqual(['3:03 PM']);
+    // A partial minute still names a range of times, which the list narrows to.
+    expect(typedTimes('30')).toEqual([]);
+    expect(typedTimes('3')).toEqual([]);
+    expect(typedTimes('')).toEqual([]);
+    // 3:99 is not a time.
+    expect(typedTimes('399')).toEqual([]);
   });
 
   test('nearestOption finds where an off-interval time sits in the list', () => {
-    expect(nearestOption(timeOptions(0, MINUTES_PER_DAY), 547)).toBe(545);
+    expect(nearestOption(timeOptions(0, MINUTES_PER_DAY), 547)).toBe(540);
     expect(nearestOption([], 547)).toBeUndefined();
   });
 
@@ -285,11 +303,11 @@ describe('ScheduleAvailabilityEditor utils', () => {
   });
 
   test('filterTimeOptions reads a leading 1 as both an hour and a prefix', () => {
-    const formatted = filterTimeOptions(timeOptions(0, MINUTES_PER_DAY), '12', 0).map(formatMinutesOfDay);
+    const formatted = filterTimeOptions(timeOptions(0, MINUTES_PER_DAY), '11', 0).map(formatMinutesOfDay);
 
-    // 12 o'clock is the more complete reading, so it leads; 1:2x follows.
-    expect(formatted[0]).toBe('12:00 AM');
-    expect(formatted).toContain('1:20 AM');
+    // 11 o'clock is the more complete reading, so it leads; 1:1x follows.
+    expect(formatted[0]).toBe('11:00 AM');
+    expect(formatted).toContain('1:15 AM');
   });
 
   test('filterTimeOptions stays within the offered options', () => {
@@ -305,15 +323,15 @@ describe('ScheduleAvailabilityEditor utils', () => {
 
   test('nextRange opens an hour after the previous block and clamps to midnight', () => {
     expect(nextRange([{ start: 540, end: 720 }])).toEqual({ start: 780, end: 840 });
-    expect(nextRange([{ start: 540, end: MINUTES_PER_DAY - 10 }])).toEqual({
-      start: MINUTES_PER_DAY - 5,
+    expect(nextRange([{ start: 540, end: MINUTES_PER_DAY - 20 }])).toEqual({
+      start: MINUTES_PER_DAY - TIME_STEP_MINUTES,
       end: MINUTES_PER_DAY,
     });
   });
 
   test('nextRange lands on the interval even after a block that does not', () => {
-    // 12:07 PM plus an hour is 1:07 PM, which the pickers cannot offer.
-    expect(nextRange([{ start: 540, end: 727 }])).toEqual({ start: 790, end: 850 });
+    // 12:07 PM plus an hour is 1:07 PM, which is not on the list.
+    expect(nextRange([{ start: 540, end: 727 }])).toEqual({ start: 795, end: 855 });
   });
 });
 
@@ -486,7 +504,7 @@ describe('ScheduleAvailabilityEditor component', () => {
       fireEvent.focus(screen.getByTestId('schedule-availability-end-mon-0'));
     });
 
-    expect(screen.getByText('11:55 PM')).toBeDefined();
+    expect(screen.getByText('11:45 PM')).toBeDefined();
     expect(screen.getByText('12:00 AM')).toBeDefined();
   });
 
@@ -500,7 +518,7 @@ describe('ScheduleAvailabilityEditor component', () => {
     // Overnight windows are no longer authorable, so nothing earlier than the
     // start time is on offer.
     expect(screen.queryByText('8:00 AM')).toBeNull();
-    expect(screen.getByText('9:05 AM')).toBeDefined();
+    expect(screen.getByText('9:15 AM')).toBeDefined();
   });
 
   test('a start can be set past its own end, moving the end an hour out', async () => {
@@ -523,7 +541,7 @@ describe('ScheduleAvailabilityEditor component', () => {
   test('a start moved late in the day stops the end at midnight', async () => {
     setup(scheduleWith(availableTime('mon', '09:00:00', '12:00:00')));
 
-    await pickTime('schedule-availability-start-mon-0', '11:55 PM');
+    await pickTime('schedule-availability-start-mon-0', '11:45 PM');
 
     expect(screen.getByTestId('schedule-availability-end-mon-0')).toHaveValue('12:00 AM');
   });
@@ -575,7 +593,7 @@ describe('ScheduleAvailabilityEditor component', () => {
     expect(screen.getByTestId('schedule-availability-announcement')).toBeEmptyDOMElement();
   });
 
-  test('a start may be picked past the end, up to 11:55 PM', async () => {
+  test('a start may be picked past the end, up to 11:45 PM', async () => {
     setup(scheduleWith(availableTime('mon', '09:00:00', '12:00:00')));
 
     await act(async () => {
@@ -584,7 +602,7 @@ describe('ScheduleAvailabilityEditor component', () => {
 
     // Not capped at the current end time of 12:00 PM.
     expect(screen.getByText('6:00 PM')).toBeDefined();
-    expect(screen.getByText('11:55 PM')).toBeDefined();
+    expect(screen.getByText('11:45 PM')).toBeDefined();
   });
 
   test('typing filters the times on offer', async () => {
@@ -721,17 +739,12 @@ describe('ScheduleAvailabilityEditor component', () => {
     ]);
   });
 
-  test('shows a stored time that is off the picker interval, marked as such', async () => {
+  test('shows a stored time that is off the picker interval, as stored', async () => {
     const { onSave } = setup(scheduleWith(availableTime('mon', '09:07:00', '17:00:00')));
 
     // Shown as stored rather than rounded to something nobody asked for.
     expect(screen.getByTestId('schedule-availability-start-mon-0')).toHaveValue('9:07 AM');
-    expect(screen.getByTestId('schedule-availability-start-mon-0')).toHaveAttribute('data-off-step');
-    expect(screen.getByTestId('schedule-availability-start-mon-0-off-step')).toBeInTheDocument();
-
-    // The end sits on the interval, so it is not marked.
     expect(screen.getByTestId('schedule-availability-end-mon-0')).toHaveValue('5:00 PM');
-    expect(screen.getByTestId('schedule-availability-end-mon-0')).not.toHaveAttribute('data-off-step');
 
     // Saving without touching it keeps the stored time.
     await save();
@@ -739,6 +752,20 @@ describe('ScheduleAvailabilityEditor component', () => {
     expect(extractAvailability(updated, service)).toEqual([
       { daysOfWeek: ['mon'], availableStartTime: '09:07:00', availableEndTime: '17:00:00' },
     ]);
+  });
+
+  test('lists a time off the interval when it is the one selected', async () => {
+    setup(scheduleWith(availableTime('mon', '09:07:00', '17:00:00')));
+
+    await act(async () => {
+      fireEvent.focus(screen.getByTestId('schedule-availability-start-mon-0'));
+    });
+
+    // The current time is on the list, so it reads as chosen rather than unset,
+    // while the interval around it is measured from midnight as usual.
+    expect(screen.getByText('9:07 AM')).toBeDefined();
+    expect(screen.getByText('9:15 AM')).toBeDefined();
+    expect(screen.queryByText('9:22 AM')).toBeNull();
   });
 
   test('an off-interval time does not shift the times on offer', async () => {
@@ -749,23 +776,67 @@ describe('ScheduleAvailabilityEditor component', () => {
     });
 
     // Measured from midnight, not from 9:07, and midnight is still reachable.
-    expect(screen.getByText('9:10 AM')).toBeDefined();
-    expect(screen.queryByText('9:12 AM')).toBeNull();
+    expect(screen.getByText('9:15 AM')).toBeDefined();
+    expect(screen.queryByText('9:22 AM')).toBeNull();
     expect(screen.getByText('12:00 AM')).toBeDefined();
   });
 
-  test('editing an off-interval time replaces it with one on the interval', async () => {
-    const { onSave } = setup(scheduleWith(availableTime('mon', '09:07:00', '17:00:00')));
+  test('offers a time typed in full even though the list would skip it', async () => {
+    const { onSave } = setup(scheduleWith(availableTime('mon', '09:00:00', '17:00:00')));
 
-    await pickTime('schedule-availability-start-mon-0', '9:10 AM');
+    const input = screen.getByTestId('schedule-availability-end-mon-0');
+    await act(async () => {
+      fireEvent.focus(input);
+    });
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '3:03 pm' } });
+    });
 
-    expect(screen.getByTestId('schedule-availability-start-mon-0')).toHaveValue('9:10 AM');
-    expect(screen.getByTestId('schedule-availability-start-mon-0')).not.toHaveAttribute('data-off-step');
+    // The quarter hours either side are gone, filtered out by the query, and
+    // the time asked for is there to be picked.
+    expect(screen.getByText('3:03 PM')).toBeDefined();
+    expect(screen.queryByText('3:00 PM')).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('3:03 PM'));
+    });
+    expect(input).toHaveValue('3:03 PM');
 
     await save();
     const updated: Schedule = onSave.mock.calls[0][0];
     expect(extractAvailability(updated, service)).toEqual([
-      { daysOfWeek: ['mon'], availableStartTime: '09:10:00', availableEndTime: '17:00:00' },
+      { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '15:03:00' },
+    ]);
+  });
+
+  test('a typed time still has to fall within the bounds of its row', async () => {
+    setup(scheduleWith(availableTime('mon', '09:00:00', '12:00:00'), availableTime('mon', '13:00:00', '17:00:00')));
+
+    const input = screen.getByTestId('schedule-availability-end-mon-0');
+    await act(async () => {
+      fireEvent.focus(input);
+    });
+    await act(async () => {
+      // Inside the block that follows, so offering it would be offering an
+      // overlap. Typing a time in full reaches past the list, not the bounds.
+      fireEvent.change(input, { target: { value: '5:03 pm' } });
+    });
+
+    expect(screen.queryByText('5:03 PM')).toBeNull();
+    expect(screen.getByText('No matching time')).toBeDefined();
+  });
+
+  test('editing an off-interval time replaces it with the one chosen', async () => {
+    const { onSave } = setup(scheduleWith(availableTime('mon', '09:07:00', '17:00:00')));
+
+    await pickTime('schedule-availability-start-mon-0', '9:15 AM');
+
+    expect(screen.getByTestId('schedule-availability-start-mon-0')).toHaveValue('9:15 AM');
+
+    await save();
+    const updated: Schedule = onSave.mock.calls[0][0];
+    expect(extractAvailability(updated, service)).toEqual([
+      { daysOfWeek: ['mon'], availableStartTime: '09:15:00', availableEndTime: '17:00:00' },
     ]);
   });
 
@@ -1023,7 +1094,7 @@ describe('ScheduleAvailabilityEditor component', () => {
       expect(updated.id).toBe('service-1');
     });
 
-    test('will not save every day off until the round-the-clock result is acknowledged', async () => {
+    test('saves every day off as hours that were cleared, not hours that were set', async () => {
       const { onSave } = setupService();
 
       for (const day of ['mon', 'tue', 'sat']) {
@@ -1032,48 +1103,15 @@ describe('ScheduleAvailabilityEditor component', () => {
         });
       }
 
-      // Unlike an empty override, this is allowed, so the warning explains what
-      // it means rather than refusing outright.
-      const warning = screen.getByTestId('schedule-availability-always-available');
-      expect(warning).toHaveTextContent('can be booked around the clock');
-      await save();
-      expect(onSave).not.toHaveBeenCalled();
-
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('schedule-availability-confirm-always-available'));
-      });
+      // An empty override cannot be written at all, but an empty service can:
+      // it means the service is unrestricted rather than unavailable. Rare
+      // enough, and harmless enough to the data, to go through unremarked.
+      expect(screen.queryByTestId('schedule-availability-empty-override')).toBeNull();
       await save();
 
       expect(onSave).toHaveBeenCalledTimes(1);
       // Absent rather than empty: an empty array reads as hours that were set.
       expect(onSave.mock.calls[0][0]).not.toHaveProperty('availableTime');
-    });
-
-    test('asks again when the days are cleared a second time', async () => {
-      const { onSave } = setupService();
-
-      for (const day of ['mon', 'tue', 'sat']) {
-        await act(async () => {
-          fireEvent.click(screen.getByTestId(`schedule-availability-switch-${day}`));
-        });
-      }
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('schedule-availability-confirm-always-available'));
-      });
-
-      // Putting a day back settles the question, so the acknowledgement should
-      // not carry over to whatever is cleared next.
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('schedule-availability-switch-mon'));
-      });
-      expect(screen.queryByTestId('schedule-availability-always-available')).toBeNull();
-
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('schedule-availability-switch-mon'));
-      });
-      expect(screen.getByTestId('schedule-availability-confirm-always-available')).not.toBeChecked();
-      await save();
-      expect(onSave).not.toHaveBeenCalled();
     });
 
     test('resolves the timezone from the service, with no calendar to ask first', () => {
@@ -1094,9 +1132,7 @@ describe('ScheduleAvailabilityEditor component', () => {
       setupService(service);
 
       expect(screen.getAllByText('Unavailable')).toHaveLength(7);
-      // Nothing has been changed yet, so the warning is about what saving would
-      // do, and it is present from the start.
-      expect(screen.getByTestId('schedule-availability-always-available')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save Settings' })).not.toHaveAttribute('aria-disabled');
     });
   });
 });

@@ -7,8 +7,11 @@ import type { HealthcareServiceAvailableTime } from '@medplum/fhirtypes';
 /** Minutes in a day. Also the exclusive end of the day, displayed as 12:00 AM. */
 export const MINUTES_PER_DAY = 1440;
 
-/** Granularity of the time pickers. Every selectable time is a multiple of this. */
-export const TIME_STEP_MINUTES = 5;
+/**
+ * Granularity of the times the pickers list. Typing reaches a time between two
+ * of them, so this sets what is convenient rather than what is possible.
+ */
+export const TIME_STEP_MINUTES = 15;
 
 /** Hours a day gets when it is first switched on: 9:00 AM to 5:00 PM. */
 export const DEFAULT_RANGE: MinuteRange = { start: 9 * 60, end: 17 * 60 };
@@ -235,19 +238,6 @@ export function formatMinutesOfDay(minutes: number): string {
   return `${hours % 12 === 0 ? 12 : hours % 12}:${(minutes % 60).toString().padStart(2, '0')} ${meridiem}`;
 }
 
-/**
- * Returns whether a time is one the pickers can offer.
- *
- * Times stored by the API or an earlier version of this editor need not be, so
- * the editor shows such a time as it is and marks it, rather than rounding a
- * value nobody asked it to change.
- * @param minutes - Minutes from midnight
- * @returns True when the time falls on the picker's interval
- */
-export function isOnTimeStep(minutes: number): boolean {
-  return minutes % TIME_STEP_MINUTES === 0;
-}
-
 // The first time on the picker's interval at or after the given one.
 function ceilToTimeStep(minutes: number): number {
   return Math.ceil(minutes / TIME_STEP_MINUTES) * TIME_STEP_MINUTES;
@@ -263,14 +253,21 @@ function ceilToTimeStep(minutes: number): number {
  * times in it.
  * @param min - Earliest selectable time, in minutes from midnight
  * @param max - Latest selectable time, in minutes from midnight
- * @returns Times at `TIME_STEP_MINUTES` intervals from midnight
+ * @param include - Times to offer alongside the interval, such as the current value or one that has been typed.
+ * Any that fall outside the bounds are left out, so this cannot widen what a row may be set to.
+ * @returns Times at `TIME_STEP_MINUTES` intervals from midnight, plus the included ones, in order
  */
-export function timeOptions(min: number, max: number): number[] {
-  const options: number[] = [];
+export function timeOptions(min: number, max: number, include: readonly number[] = []): number[] {
+  const options = new Set<number>();
   for (let minutes = ceilToTimeStep(min); minutes <= max; minutes += TIME_STEP_MINUTES) {
-    options.push(minutes);
+    options.add(minutes);
   }
-  return options;
+  for (const time of include) {
+    if (time >= min && time <= max) {
+      options.add(time);
+    }
+  }
+  return [...options].sort((a, b) => a - b);
 }
 
 /**
@@ -384,11 +381,35 @@ function leadWithNearestHour(options: number[], current: number): number[] {
 }
 
 /**
+ * Reads the exact times a finished query names, for offering alongside the interval.
+ *
+ * The list is there to make the common times quick to reach, not to rule the
+ * others out, so typing a time in full offers that time even when it falls
+ * between two on the list. Only a complete query counts: an hour with both
+ * minute digits. Anything shorter still names a range of times, which the list
+ * already narrows to. Without AM or PM the hour is ambiguous, so both readings
+ * are offered, the same way a bare hour matches two entries on the list.
+ * @param query - What has been typed, e.g. `303p`
+ * @returns The times the query names exactly, in minutes from midnight
+ */
+export function typedTimes(query: string): number[] {
+  return parseTimeQuery(query)
+    .filter((parsed) => parsed.minutes.length === 2 && Number(parsed.minutes) < 60)
+    .flatMap((parsed) => {
+      const hour = parsed.hour % 12;
+      const minutes = Number(parsed.minutes);
+      const meridiems = parsed.meridiem ? [parsed.meridiem] : (['am', 'pm'] as const);
+      return meridiems.map((meridiem) => (meridiem === 'am' ? hour : hour + 12) * 60 + minutes);
+    });
+}
+
+/**
  * Narrows the selectable times to those matching what has been typed.
  *
  * Typing is a way to reach a time quickly rather than a separate way to enter
  * one, so the result is always a subset of `options` and the picker stays
- * limited to the times still free on that day.
+ * limited to the times still free on that day. A time typed in full reaches the
+ * list through `typedTimes` rather than around it, so the bounds still hold.
  * @param options - The selectable times, from `timeOptions`
  * @param query - What has been typed, e.g. `930p`
  * @param current - The currently selected time, used to order equally good matches

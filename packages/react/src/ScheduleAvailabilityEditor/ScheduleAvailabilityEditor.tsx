@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   ActionIcon,
-  Alert,
   Anchor,
   Box,
   Button,
-  Checkbox,
   Divider,
   Group,
   Paper,
@@ -26,7 +24,7 @@ import {
 } from '@medplum/core';
 import type { HealthcareService, Schedule } from '@medplum/fhirtypes';
 import { useResource } from '@medplum/react-hooks';
-import { IconAlertTriangle, IconMinus, IconPlus } from '@tabler/icons-react';
+import { IconMinus, IconPlus } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { useId, useState } from 'react';
 import type { DayAvailability, WeeklyAvailability } from './ScheduleAvailabilityEditor.utils';
@@ -258,9 +256,6 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // The flash on an auto-moved end time is only visible, so the same change is
   // also announced.
   const [announcement, setAnnouncement] = useState('');
-  // Clearing every day off a service means the opposite of clearing one off a
-  // Schedule, so it is confirmed rather than blocked. See `emptyDefault`.
-  const [confirmedAlwaysAvailable, setConfirmedAlwaysAvailable] = useState(false);
   const reasonId = useId();
 
   // Scheduling falls back to the actor's timezone extension when neither the
@@ -275,28 +270,15 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // extension: [] }`, which fails FHIR constraint ext-1 on write. Require at
   // least one available day for custom hours; to disable a service on this
   // calendar, toggle it off in schedule settings instead.
+  // Clearing every day off a service is not the same thing, and is left alone:
+  // a service with no `availableTime` is unrestricted rather than unavailable,
+  // since scheduling treats time as free unless a rule says otherwise. Nothing
+  // marks that today, on the grounds that it is a rare thing to do and harmless
+  // to the data when it happens.
   const emptyOverride = !editingDefault && overriding && !hasAnyAvailableDay(weekly);
   const emptyOverrideReason =
     `Custom availability must include at least one available day. ` +
     `To stop scheduling ${serviceName} on this calendar, turn it off in schedule settings.`;
-
-  // A service with no `availableTime` at all is unrestricted rather than
-  // unavailable, since scheduling treats time as free unless a rule says
-  // otherwise. Clearing every day is therefore a real thing to want and the
-  // opposite of what it looks like, so it is saved only once acknowledged.
-  const emptyDefault = editingDefault && !hasAnyAvailableDay(weekly);
-  const unconfirmedEmptyDefault = emptyDefault && !confirmedAlwaysAvailable;
-  const blockedReason = emptyOverride
-    ? emptyOverrideReason
-    : `Confirm that ${serviceName} should be bookable at any time before saving.`;
-  const blocked = emptyOverride || unconfirmedEmptyDefault;
-
-  // Putting a day back makes the acknowledgement moot, and leaving it ticked
-  // would let a later clearing through without being seen.
-  function updateWeekly(next: (previous: WeeklyAvailability) => WeeklyAvailability): void {
-    setWeekly(next);
-    setConfirmedAlwaysAvailable(false);
-  }
 
   // Switching the override off puts the service default back in effect, so the
   // greyed out hours show that default rather than edits that no longer apply.
@@ -308,7 +290,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   }
 
   async function handleSave(): Promise<void> {
-    if (blocked) {
+    if (emptyOverride) {
       return;
     }
     setSaving(true);
@@ -340,8 +322,8 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
   // anyone who cannot see the tooltip, and `handleSave` already refuses to run.
   const saveButton = (
     <Tooltip
-      label={blockedReason}
-      disabled={!blocked}
+      label={emptyOverrideReason}
+      disabled={!emptyOverride}
       multiline
       w={300}
       withArrow
@@ -353,9 +335,9 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
         onClick={handleSave}
         loading={saving}
         fullWidth={!onCancel}
-        data-disabled={blocked || undefined}
-        aria-disabled={blocked || undefined}
-        aria-describedby={blocked ? reasonId : undefined}
+        data-disabled={emptyOverride || undefined}
+        aria-disabled={emptyOverride || undefined}
+        aria-describedby={emptyOverride ? reasonId : undefined}
       >
         Save Settings
       </Button>
@@ -393,7 +375,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
               day={day}
               value={weekly[day]}
               disabled={!overriding}
-              onChange={(value) => updateWeekly((prev) => ({ ...prev, [day]: value }))}
+              onChange={(value) => setWeekly((prev) => ({ ...prev, [day]: value }))}
               onAnnounce={setAnnouncement}
             />
           ))}
@@ -407,7 +389,7 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
               <Anchor
                 component="button"
                 type="button"
-                onClick={() => updateWeekly(() => toWeeklyAvailability(service.availableTime))}
+                onClick={() => setWeekly(toWeeklyAvailability(service.availableTime))}
                 disabled={!overriding}
                 c={overriding ? undefined : 'dimmed'}
                 underline={overriding ? 'hover' : 'never'}
@@ -424,31 +406,9 @@ export function ScheduleAvailabilityEditor(props: ScheduleAvailabilityEditorProp
           )}
         </Stack>
       </Paper>
-      {emptyDefault && (
-        <Alert
-          color="yellow"
-          icon={<IconAlertTriangle size={18} stroke={1.8} />}
-          title="No hours means no restriction"
-          data-testid="schedule-availability-always-available"
-        >
-          <Stack gap="sm">
-            <Text size="sm">
-              Scheduling treats time as free unless hours say otherwise, so a service with no hours at all can be booked
-              around the clock. Saving now makes {serviceName} bookable at any time, rather than unavailable. To stop
-              booking it, remove the service from the calendars that offer it.
-            </Text>
-            <Checkbox
-              checked={confirmedAlwaysAvailable}
-              onChange={(e) => setConfirmedAlwaysAvailable(e.currentTarget.checked)}
-              label={`Make ${serviceName} bookable at any time`}
-              data-testid="schedule-availability-confirm-always-available"
-            />
-          </Stack>
-        </Alert>
-      )}
-      {blocked && (
+      {emptyOverride && (
         <VisuallyHidden id={reasonId} data-testid="schedule-availability-empty-override">
-          {blockedReason}
+          {emptyOverrideReason}
         </VisuallyHidden>
       )}
       {onCancel ? (

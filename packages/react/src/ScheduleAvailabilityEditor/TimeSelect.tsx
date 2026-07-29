@@ -1,16 +1,15 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import { Combobox, Group, InputBase, Tooltip, useCombobox } from '@mantine/core';
-import { IconCheck, IconClockExclamation } from '@tabler/icons-react';
+import { Combobox, Group, InputBase, useCombobox } from '@mantine/core';
+import { IconCheck } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
   filterTimeOptions,
   formatMinutesOfDay,
-  isOnTimeStep,
   nearestOption,
-  TIME_STEP_MINUTES,
   timeOptions,
+  typedTimes,
 } from './ScheduleAvailabilityEditor.utils';
 
 /**
@@ -100,13 +99,14 @@ export function TimeSelect(props: TimeSelectProps): JSX.Element {
   }, [dropdownOpened]);
 
   const display = formatMinutesOfDay(value);
-  const options = filterTimeOptions(timeOptions(min, max), typing ? query : '', value);
-  // A time set elsewhere need not sit on the picker's interval. It is shown as
-  // it is and marked, rather than rounded on the user's behalf; the next time
-  // they pick lands back on the interval.
-  const offStep = !isOnTimeStep(value);
-  // Without an exact match there is nothing to scroll to, so the list opens
-  // near the current time instead of at the top of the day.
+  const typed = typing ? query : '';
+  // The interval decides what is listed, not what is reachable. The current
+  // time is listed whether or not it sits on the interval, so a time set
+  // elsewhere is still shown as selected rather than looking unset, and a time
+  // typed in full is listed so it can be picked like any other.
+  const options = filterTimeOptions(timeOptions(min, max, [value, ...typedTimes(typed)]), typed, value);
+  // Filtering can leave the current time out, and then there is nothing exact
+  // to scroll to, so the list opens near it instead of at the top of the day.
   const scrollTo = options.includes(value) ? value : nearestOption(options, value);
 
   function handleSubmit(selected: number): void {
@@ -152,27 +152,7 @@ export function TimeSelect(props: TimeSelectProps): JSX.Element {
           aria-label={label}
           data-testid={testId}
           data-flashing={flashing || undefined}
-          data-off-step={offStep || undefined}
           styles={flashing ? FLASH_STYLES : INPUT_STYLES}
-          leftSection={
-            offStep && (
-              <Tooltip
-                multiline
-                w={240}
-                withArrow
-                label={`${display} was set outside this editor. Times here are picked in ${TIME_STEP_MINUTES} minute steps, so choosing a new one will replace it.`}
-              >
-                <IconClockExclamation
-                  size={15}
-                  stroke={1.8}
-                  color="var(--mantine-color-dimmed)"
-                  data-testid={testId && `${testId}-off-step`}
-                />
-              </Tooltip>
-            )
-          }
-          leftSectionPointerEvents="all"
-          leftSectionWidth={offStep ? 26 : 0}
           rightSection={<Combobox.Chevron />}
           rightSectionPointerEvents="none"
           onChange={(e) => {
