@@ -165,17 +165,22 @@ const offIntervalSchedule: Schedule = {
 // The editor renders form content only, so the heading and the container are
 // the caller's choice. These stories show it on a page; the provider app puts
 // the same component in a Modal.
-function EditorStory(props: { schedule: Schedule; onCancel?: () => void }): JSX.Element {
+function EditorStory(props: {
+  schedule: Schedule;
+  onCancel?: () => void;
+  forService?: HealthcareService;
+}): JSX.Element {
   const [schedule, setSchedule] = useState(props.schedule);
+  const forService = props.forService ?? service;
 
   return (
     <Document>
       <Title order={3} mb="xs">
-        Weekly Availability for {service.name}
+        Weekly Availability for {forService.name}
       </Title>
       <ScheduleAvailabilityEditor
         schedule={schedule}
-        service={service}
+        service={forService}
         onCancel={props.onCancel}
         onSave={setSchedule}
       />
@@ -215,8 +220,17 @@ export const OvernightHours = (): JSX.Element => <EditorStory schedule={overnigh
 // and marked.
 export const OffIntervalHours = (): JSX.Element => <EditorStory schedule={offIntervalSchedule} />;
 
-// No SchedulingParameters at all; seeds from the service default.
-export const NoAvailability = (): JSX.Element => <EditorStory schedule={emptySchedule} />;
+// Neither the Schedule nor the service says anything about hours, so there is
+// nothing to inherit and the week opens empty. This is the one state where the
+// read-only rows are genuinely blank rather than showing a default; a Schedule
+// that merely lacks an override looks like InheritingServiceDefault above,
+// because the service's hours are still the ones in effect.
+export const NoHoursAnywhere = (): JSX.Element => (
+  <EditorStory
+    schedule={emptySchedule}
+    forService={{ resourceType: 'HealthcareService', id: 'service-3', name: 'New Visit Type' }}
+  />
+);
 
 // Passing onCancel adds a Cancel button beside Save, for hosts that can be
 // dismissed. Without it, Save is the only action and spans the full width.
