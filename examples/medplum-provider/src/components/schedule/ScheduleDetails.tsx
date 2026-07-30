@@ -38,7 +38,7 @@ export function ScheduleDetails(props: ScheduleDetailsProps): JSX.Element | null
   const [appointmentDetails, setAppointmentDetails] = useState<WithId<Appointment> | undefined>(undefined);
   const [healthcareService, setHealthcareService] = useState<WithId<HealthcareService> | undefined>(undefined);
 
-  const availableTime = extractAvailability(healthcareService, schedule);
+  const availableTime = extractAvailability(schedule, healthcareService);
 
   const { slots, appointments, loading } = useSchedulingResources([schedule], range);
 

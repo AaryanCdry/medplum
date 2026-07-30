@@ -11,6 +11,6 @@ export type AvailableTime = {
   availableEndTime: string; // 'hh:mm:ss' FHIR Time format
 };
 
-export function isDayOfWeek(s: string): s is DayOfWeek {
+export function isDayOfWeek(s: string | undefined): s is DayOfWeek {
   return s === 'mon' || s === 'tue' || s === 'wed' || s === 'thu' || s === 'fri' || s === 'sat' || s === 'sun';
 }

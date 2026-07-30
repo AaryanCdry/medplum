@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
 import type { WithId } from '@medplum/core';
-import { generateId, getExtension, getIdentifier, getReferenceString, isDefined, setIdentifier } from '@medplum/core';
+import { generateId, getExtension, getIdentifier, getReferenceString, setIdentifier } from '@medplum/core';
 import type {
   Extension,
   HealthcareService,
@@ -37,14 +37,16 @@ export function hasSchedulingParameters(resource: Schedule | HealthcareService):
   return !!getExtension(resource, SchedulingParametersURI);
 }
 
+function getSubExtensions(extension: Extension | undefined, url: string): Extension[] {
+  return extension?.extension?.filter((subextension) => subextension.url === url) ?? [];
+}
+
 // Convert a single `SchedulingParameters.availability.availableTime`
 // sub-sub-extension into a HealthcareServiceAvailableTime.
-function extractAvailableTime(availableTime: Extension): HealthcareServiceAvailableTime | undefined {
+function toAvailableTime(availableTime: Extension): HealthcareServiceAvailableTime {
   // `daysOfWeek` repeats once per day value.
-  const daysOfWeek = (availableTime.extension ?? [])
-    .filter((e) => e.url === 'daysOfWeek')
+  const daysOfWeek = getSubExtensions(availableTime, 'daysOfWeek')
     .map((e) => e.valueCode)
-    .filter(isDefined)
     .filter(isDayOfWeek);
 
   if (getExtension(availableTime, 'allDay')?.valueBoolean) {
@@ -73,44 +75,32 @@ function schedulingParametersForService(service: WithId<HealthcareService>, sche
 // Gets nested "SchedulingParameters.availability" extensions related to the
 // requested service, and converts them into entries matching the shape of
 // HealthcareService.availableTime.
-function availabilityOverrides(
-  service: WithId<HealthcareService>,
-  schedule: Schedule
+function getAvailabilityOverride(
+  schedule: Schedule,
+  service: WithId<HealthcareService>
 ): HealthcareServiceAvailableTime[] | undefined {
   const extensions = schedulingParametersForService(service, schedule);
-  const subExtensions = extensions.flatMap((extension) =>
-    (extension.extension ?? []).filter((subExtension) => subExtension.url === 'availability')
-  );
+  const subExtensions = extensions.flatMap((extension) => getSubExtensions(extension, 'availability'));
 
   if (!subExtensions?.length) {
     return undefined;
   }
 
-  // Each `availability` extension holds one or more `availableTime` sub-extensions.
-  return subExtensions
-    .flatMap((availabilityExt) => availabilityExt.extension ?? [])
-    .filter((subExtension) => subExtension.url === 'availableTime')
-    .map(extractAvailableTime)
-    .filter(isDefined);
+  // Each `availability` sub-extension holds `availableTime` sub-sub-extensions.
+  return subExtensions.flatMap((subExt) => getSubExtensions(subExt, 'availableTime')).map(toAvailableTime);
 }
 
 // Returns an array of HealthcareServiceAvailableTime entries for a
 // HealthcareService/Schedule pair. Respects overrides in scheduling parameter
 // extensions on the schedule.
 export function extractAvailability(
-  service: WithId<HealthcareService> | undefined,
-  schedule: Schedule | undefined
+  schedule: Schedule | undefined,
+  service: WithId<HealthcareService> | undefined
 ): HealthcareServiceAvailableTime[] | undefined {
   if (!service) {
     return undefined;
   }
 
-  if (schedule) {
-    const overrides = availabilityOverrides(service, schedule);
-    if (overrides !== undefined) {
-      return overrides;
-    }
-  }
-
-  return service.availableTime;
+  const override = schedule && getAvailabilityOverride(schedule, service);
+  return override ?? service.availableTime;
 }

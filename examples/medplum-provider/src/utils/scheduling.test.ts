@@ -108,14 +108,14 @@ describe('extractAvailability', () => {
       resourceType: 'Schedule',
       actor: [{ reference: 'Practitioner/prac-1' }],
     };
-    expect(extractAvailability(service, schedule)).toEqual(service.availableTime);
+    expect(extractAvailability(schedule, service)).toEqual(service.availableTime);
   });
 
   test('returns the service availableTime when the schedule parameters target a different service', () => {
     const schedule = scheduleWithAvailability('HealthcareService/some-other-service', [
       availableTimeExtension({ daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '10:00:00' }),
     ]);
-    expect(extractAvailability(service, schedule)).toEqual(service.availableTime);
+    expect(extractAvailability(schedule, service)).toEqual(service.availableTime);
   });
 
   test('returns the service availableTime when the matching parameters have no availability sub-extension', () => {
@@ -129,7 +129,7 @@ describe('extractAvailability', () => {
         },
       ],
     };
-    expect(extractAvailability(service, schedule)).toEqual(service.availableTime);
+    expect(extractAvailability(schedule, service)).toEqual(service.availableTime);
   });
 
   test('returns the override with a start/end time when present', () => {
@@ -140,7 +140,7 @@ describe('extractAvailability', () => {
         availableEndTime: '17:00:00',
       }),
     ]);
-    expect(extractAvailability(service, schedule)).toEqual([
+    expect(extractAvailability(schedule, service)).toEqual([
       { daysOfWeek: ['mon', 'wed'], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
     ]);
   });
@@ -149,7 +149,7 @@ describe('extractAvailability', () => {
     const schedule = scheduleWithAvailability(`HealthcareService/${SERVICE_ID}`, [
       availableTimeExtension({ daysOfWeek: ['sat', 'sun'], allDay: true }),
     ]);
-    expect(extractAvailability(service, schedule)).toEqual([{ daysOfWeek: ['sat', 'sun'], allDay: true }]);
+    expect(extractAvailability(schedule, service)).toEqual([{ daysOfWeek: ['sat', 'sun'], allDay: true }]);
   });
 
   test('uses start/end time when allDay is false', () => {
@@ -161,7 +161,7 @@ describe('extractAvailability', () => {
         availableEndTime: '17:00:00',
       }),
     ]);
-    expect(extractAvailability(service, schedule)).toEqual([
+    expect(extractAvailability(schedule, service)).toEqual([
       { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
     ]);
   });
@@ -171,7 +171,7 @@ describe('extractAvailability', () => {
       availableTimeExtension({ daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' }),
       availableTimeExtension({ daysOfWeek: ['tue'], allDay: true }),
     ]);
-    expect(extractAvailability(service, schedule)).toEqual([
+    expect(extractAvailability(schedule, service)).toEqual([
       { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '12:00:00' },
       { daysOfWeek: ['tue'], allDay: true },
     ]);
@@ -190,7 +190,7 @@ describe('extractAvailability', () => {
         ],
       },
     ]);
-    expect(extractAvailability(service, schedule)).toEqual([
+    expect(extractAvailability(schedule, service)).toEqual([
       { daysOfWeek: ['mon', 'fri'], availableStartTime: '09:00:00', availableEndTime: '17:00:00' },
     ]);
   });
@@ -243,7 +243,7 @@ describe('extractAvailability', () => {
         },
       ],
     };
-    expect(extractAvailability(service, schedule)).toEqual([
+    expect(extractAvailability(schedule, service)).toEqual([
       { daysOfWeek: ['mon'], availableStartTime: '09:00:00', availableEndTime: '10:00:00' },
       { daysOfWeek: ['tue'], allDay: true },
       { daysOfWeek: ['wed'], availableStartTime: '11:00:00', availableEndTime: '12:00:00' },
